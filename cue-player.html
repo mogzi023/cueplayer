@@ -1,0 +1,3738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cue Player</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #141414;
+    --surface2: #1e1e1e;
+    --accent: #b0b0b0;
+    --accent2: #2a2a2a;
+    --text: #e0e0e0;
+    --text-dim: #707070;
+    --timeline-bg: #0e0e0e;
+    --chapter-border: rgba(160, 160, 160, 0.5);
+    --playhead: #c0c0c0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    flex-shrink: 0;
+  }
+  .header h1 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+  }
+  .header-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .btn {
+    background: var(--surface2);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .btn:hover { background: var(--accent2); border-color: rgba(255,255,255,0.25); }
+  .btn-accent { background: #333; border-color: var(--accent); }
+  .btn-accent:hover { background: #444; }
+
+  /* Main area */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* Left sidebar — split: files top, cues bottom */
+  .left-sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--surface);
+    border-right: 1px solid rgba(255,255,255,0.05);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  /* ── Collapsible sidebar sections ── */
+  .sidebar-section {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    overflow: hidden;
+    transition: flex 0.2s ease;
+  }
+  .sidebar-section:last-child { border-bottom: none; }
+  .sidebar-section.collapsed {
+    flex: 0 0 auto;
+    min-height: 0;
+  }
+  .sidebar-section.collapsed .section-body { display: none; }
+  .sidebar-section.collapsed .section-footer { display: none; }
+
+  .section-header {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.1s;
+  }
+  .section-header:hover { background: rgba(255,255,255,0.02); }
+  .section-header .chevron {
+    font-size: 9px;
+    transition: transform 0.2s;
+    flex-shrink: 0;
+    color: var(--text-dim);
+    width: 10px;
+    text-align: center;
+  }
+  .sidebar-section.collapsed .section-header .chevron { transform: rotate(-90deg); }
+  .section-header .section-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .section-header .section-badge {
+    font-size: 9px;
+    color: var(--text-dim);
+    background: rgba(255,255,255,0.06);
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-weight: 400;
+    flex-shrink: 0;
+  }
+
+  .section-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2px 0;
+  }
+  .section-body::-webkit-scrollbar { width: 6px; }
+  .section-body::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+
+  .section-footer {
+    padding: 3px 12px;
+    font-size: 9px;
+    color: var(--text-dim);
+    border-top: 1px solid rgba(255,255,255,0.05);
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  /* File items */
+  .file-item {
+    display: flex;
+    align-items: center;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+    gap: 8px;
+    border-left: 3px solid transparent;
+  }
+  .file-item:hover { background: rgba(255,255,255,0.03); }
+  .file-item.active {
+    background: rgba(192,192,192,0.08);
+    border-left-color: var(--accent);
+  }
+  .file-item.new-file { border-left-color: #90c090; }
+  .file-item .file-icon {
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    width: 14px;
+    text-align: center;
+  }
+  .file-item .file-name {
+    font-size: 11px;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .file-item .file-meta {
+    font-size: 9px;
+    color: var(--text-dim);
+    font-family: 'Consolas', monospace;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .file-empty-msg {
+    padding: 10px 12px;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  /* Cue list */
+  .cue-list { padding: 2px 0; }
+
+  .cue-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background 0.1s;
+    gap: 10px;
+    border-left: 3px solid transparent;
+  }
+  .cue-item:hover { background: rgba(255,255,255,0.03); }
+  .cue-item.active {
+    background: rgba(192, 192, 192, 0.08);
+    border-left-color: var(--accent);
+  }
+  .cue-item .cue-number {
+    font-size: 12px;
+    color: var(--accent);
+    min-width: 42px;
+    font-variant-numeric: tabular-nums;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-weight: 600;
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .cue-item .cue-name {
+    font-size: 13px;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cue-item .cue-time {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    font-family: 'Consolas', 'Monaco', monospace;
+  }
+
+  /* Watch folder indicator */
+  .watch-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .watch-indicator.active { color: #90c090; border-color: rgba(144,192,144,0.3); background: rgba(144,192,144,0.08); }
+  .watch-indicator.paused { color: #c0a050; border-color: rgba(192,160,80,0.3); background: rgba(192,160,80,0.08); }
+  .watch-indicator.paused .watch-dot { background: #c0a050; animation: none; }
+
+  /* Watch pause toggle */
+  .watch-toggle {
+    position: relative;
+    width: 28px;
+    height: 14px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+  .watch-toggle.on { background: rgba(144,192,144,0.5); }
+  .watch-toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    background: var(--text);
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .watch-toggle.on::after { transform: translateX(14px); }
+  .watch-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-dim);
+  }
+  .watch-indicator.active .watch-dot {
+    background: #90c090;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* Player area */
+  .player-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Video / visual area */
+  .media-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    position: relative;
+    overflow: hidden;
+  }
+  .media-container video {
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  /* Drop zone overlay */
+  .drop-zone {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 10;
+  }
+  .drop-zone.has-media { display: none; }
+  .drop-zone-icon {
+    width: 80px;
+    height: 80px;
+    border: 2px dashed var(--text-dim);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    color: var(--text-dim);
+  }
+  .drop-zone p { color: var(--text-dim); font-size: 14px; }
+  .drop-zone .hint { font-size: 12px; color: rgba(255,255,255,0.3); }
+
+  body.dragging .drop-zone {
+    display: flex !important;
+    background: rgba(192, 192, 192, 0.05);
+    border: 2px dashed var(--accent);
+  }
+
+  /* Current cue display */
+  .current-cue-display {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(8px);
+    padding: 8px 20px;
+    border-radius: 8px;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 5;
+    white-space: nowrap;
+  }
+  .current-cue-display.visible { opacity: 1; }
+  .current-cue-display .cue-label { color: var(--accent); margin-right: 8px; font-size: 13px; }
+
+  /* Transport controls */
+  .transport {
+    background: var(--surface);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    flex-shrink: 0;
+  }
+  .transport-btn {
+    background: none;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    font-size: 18px;
+    line-height: 1;
+    transition: all 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+  }
+  .transport-btn:hover { background: rgba(255,255,255,0.1); }
+  .transport-btn.play-btn {
+    background: #333;
+    border: 1px solid var(--accent);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+  }
+  .transport-btn.play-btn:hover { background: #444; }
+
+  .time-display {
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+    min-width: 120px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .volume-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+  }
+  .volume-slider {
+    -webkit-appearance: none;
+    width: 80px;
+    height: 4px;
+    background: var(--surface2);
+    border-radius: 2px;
+    outline: none;
+  }
+  .volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--text);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+
+  .speed-control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .speed-btn {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-dim);
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .speed-btn:hover, .speed-btn.active { color: #fff; border-color: rgba(255,255,255,0.3); }
+
+  /* Timeline */
+  .timeline-container {
+    background: var(--timeline-bg);
+    flex-shrink: 0;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    position: relative;
+    padding-top: 28px;
+  }
+  .timeline-scroll {
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface2) transparent;
+  }
+  .timeline-scroll::-webkit-scrollbar { height: 6px; }
+  .timeline-scroll::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+  .timeline-scroll::-webkit-scrollbar-track { background: transparent; }
+  .timeline-inner {
+    min-width: 100%;
+    position: relative;
+  }
+
+  /* Zoom controls */
+  .zoom-controls {
+    position: absolute;
+    top: 3px;
+    right: 8px;
+    z-index: 25;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    height: 24px;
+  }
+  .zoom-btn {
+    background: var(--surface2);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-dim);
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+  }
+  .zoom-btn:hover { border-color: rgba(255,255,255,0.25); color: var(--text); }
+  .zoom-level {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: 'Consolas', monospace;
+    min-width: 28px;
+    text-align: center;
+  }
+
+  /* Chapter label row */
+  .chapter-labels {
+    position: relative;
+    height: 28px;
+    overflow: hidden;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .chapter-label {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-dim);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    border-right: 1px solid rgba(255,255,255,0.08);
+    transition: background 0.15s, color 0.15s;
+    cursor: pointer;
+  }
+  .chapter-label:hover { background: rgba(255,255,255,0.05); }
+  .chapter-label.active {
+    background: rgba(192, 192, 192, 0.12);
+    color: #fff;
+  }
+
+  /* Timeline scrub area */
+  .timeline-track-area {
+    position: relative;
+    height: 40px;
+    cursor: pointer;
+  }
+
+  .timeline-track {
+    position: absolute;
+    top: 16px;
+    left: 0;
+    right: 0;
+    height: 8px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 4px;
+  }
+
+  .timeline-progress {
+    position: absolute;
+    top: 16px;
+    left: 0;
+    height: 8px;
+    background: linear-gradient(90deg, #333, #888);
+    border-radius: 4px;
+    pointer-events: none;
+  }
+
+  .timeline-playhead {
+    position: absolute;
+    top: 12px;
+    width: 3px;
+    height: 16px;
+    background: var(--playhead);
+    border-radius: 1.5px;
+    pointer-events: none;
+    box-shadow: 0 0 8px rgba(192, 192, 192, 0.4);
+    z-index: 2;
+  }
+
+  /* Chapter tick marks on timeline */
+  .chapter-tick {
+    position: absolute;
+    top: 8px;
+    width: 1px;
+    height: 24px;
+    background: var(--chapter-border);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Session markers on timeline */
+  .session-marker {
+    position: absolute;
+    top: 4px;
+    width: 3px;
+    height: 32px;
+    border-radius: 1px;
+    pointer-events: auto;
+    z-index: 3;
+    cursor: pointer;
+    opacity: 0.85;
+    transition: opacity 0.15s;
+  }
+  .session-marker:hover { opacity: 1; }
+  .session-marker::before {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: inherit;
+    border: 1px solid rgba(0,0,0,0.4);
+  }
+  .session-marker-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.9);
+    color: var(--text);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    margin-bottom: 6px;
+  }
+  .session-marker:hover .session-marker-tooltip { opacity: 1; }
+
+  /* Marker controls (in zoom controls area) */
+  .marker-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    padding-left: 8px;
+    border-left: 1px solid rgba(255,255,255,0.1);
+  }
+  .marker-colour-btn {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.3);
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+    position: relative;
+  }
+  .marker-colour-btn:hover { border-color: rgba(255,255,255,0.6); transform: scale(1.1); }
+  .marker-colour-btn.active { border-color: #fff; }
+  .marker-palette {
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    margin-bottom: 8px;
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 8px;
+    display: none;
+    gap: 6px;
+    flex-wrap: wrap;
+    width: 140px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    z-index: 30;
+  }
+  .marker-palette.visible { display: flex; }
+  .marker-palette-swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+  }
+  .marker-palette-swatch:hover { transform: scale(1.15); }
+  .marker-palette-swatch.selected { border-color: #fff; }
+  .marker-count-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: 'Consolas', monospace;
+  }
+
+  /* Marker items in cue list */
+  .cue-item.marker-item {
+    border-left: 3px solid var(--marker-colour, #e06060);
+    padding: 5px 16px;
+    opacity: 0.9;
+  }
+  .cue-item.marker-item:hover { opacity: 1; }
+  .cue-item.marker-item .cue-number {
+    color: var(--marker-colour, #e06060);
+    font-size: 11px;
+    min-width: 42px;
+  }
+  .cue-item.marker-item .cue-name {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+  .marker-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .marker-offset {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: 'Consolas', 'Monaco', monospace;
+    opacity: 0.7;
+  }
+
+  /* Time ruler */
+  .time-ruler {
+    position: relative;
+    height: 20px;
+    overflow: hidden;
+  }
+  .time-ruler-mark {
+    position: absolute;
+    top: 0;
+    font-size: 9px;
+    color: rgba(255,255,255,0.25);
+    font-family: 'Consolas', 'Monaco', monospace;
+    transform: translateX(-50%);
+  }
+
+  /* Tooltips */
+  .timeline-tooltip {
+    position: absolute;
+    bottom: 100%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.9);
+    color: var(--text);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 20;
+    margin-bottom: 4px;
+  }
+  .timeline-tooltip.visible { opacity: 1; }
+
+  /* Keyboard shortcuts help */
+  .shortcuts-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .shortcuts-overlay.visible { display: flex; }
+  .shortcuts-panel {
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 24px 32px;
+    max-width: 400px;
+  }
+  .shortcuts-panel h2 { font-size: 16px; margin-bottom: 16px; color: var(--accent); }
+  .shortcut-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+  }
+  .shortcut-row kbd {
+    background: var(--surface2);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'Consolas', monospace;
+    font-size: 12px;
+  }
+
+  /* Settings overlay */
+  .settings-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .settings-overlay.visible { display: flex; }
+  .settings-panel {
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 24px 32px;
+    width: 440px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .settings-panel h2 { font-size: 16px; margin-bottom: 16px; color: var(--accent); }
+  .settings-section {
+    margin-bottom: 20px;
+    padding: 14px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+  }
+  .settings-section h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .settings-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+  .settings-row label {
+    min-width: 70px;
+    color: var(--text-dim);
+  }
+  .settings-row input[type="text"],
+  .settings-row input[type="number"] {
+    background: var(--bg);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'Consolas', monospace;
+    width: 140px;
+  }
+  .settings-row input:focus { outline: none; border-color: var(--accent); }
+  .settings-row select {
+    background: var(--bg);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .toggle-switch {
+    position: relative;
+    width: 36px;
+    height: 18px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+  .toggle-switch.on { background: rgba(144,192,144,0.6); }
+  .toggle-switch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: var(--text);
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .toggle-switch.on::after { transform: translateX(18px); }
+  .conn-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #555;
+    flex-shrink: 0;
+  }
+  .conn-status.connected { background: #90c090; }
+  .conn-status.error { background: #c05050; }
+  .settings-hint {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    font-family: 'Consolas', monospace;
+  }
+
+  /* TX indicator in header */
+  .tx-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.03);
+    color: var(--text-dim);
+  }
+  .tx-indicator.active {
+    color: #90c090;
+    border-color: rgba(144,192,144,0.3);
+    background: rgba(144,192,144,0.08);
+  }
+  .tx-indicator .tx-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .tx-indicator.active .tx-dot { animation: pulse 1.5s infinite; }
+  .tx-flash { animation: txFlash 0.3s ease-out; }
+  @keyframes txFlash {
+    0% { background: rgba(144,192,144,0.3); }
+    100% { background: rgba(144,192,144,0.08); }
+  }
+  .rx-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.03);
+    color: var(--text-dim);
+  }
+  .rx-indicator.active {
+    color: #60a0d0;
+    border-color: rgba(96,160,208,0.3);
+    background: rgba(96,160,208,0.08);
+  }
+  .rx-indicator .rx-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .rx-indicator.active .rx-dot { animation: pulse 1.5s infinite; }
+  .rx-flash { animation: rxFlash 0.3s ease-out; }
+  @keyframes rxFlash {
+    0% { background: rgba(96,160,208,0.3); }
+    100% { background: rgba(96,160,208,0.08); }
+  }
+
+  /* Hidden file inputs */
+  .hidden-input { display: none; }
+
+  /* Alternating chapter label backgrounds */
+  .chapter-label:nth-child(odd) { background: rgba(255,255,255,0.02); }
+  .chapter-label.active:nth-child(odd) { background: rgba(192, 192, 192, 0.12); }
+
+  /* ── Cue Search ── */
+  .index-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    display: inline-block;
+  }
+  .index-dot.ready { background: #90c090; }
+  .index-dot.scanning { background: #c0a050; animation: pulse 1s infinite; }
+  .cue-search-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'Consolas', monospace;
+    outline: none;
+  }
+  .cue-search-input:focus { border-color: var(--accent); }
+  .cue-search-input::placeholder { color: var(--text-dim); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; }
+  .search-result-item {
+    display: flex;
+    align-items: center;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+    gap: 8px;
+    border-left: 3px solid transparent;
+  }
+  .search-result-item:hover { background: rgba(255,255,255,0.03); }
+  .search-result-item .result-cue {
+    font-size: 11px;
+    color: var(--accent);
+    font-family: 'Consolas', monospace;
+    font-weight: 600;
+    min-width: 40px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .search-result-item .result-file {
+    font-size: 11px;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .search-result-item .result-title {
+    font-size: 9px;
+    color: var(--text-dim);
+    max-width: 80px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+  }
+  .search-empty-msg {
+    padding: 8px 12px;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  /* Camera overlay */
+  .camera-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+    pointer-events: none;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .camera-overlay.active { display: flex; }
+  .camera-overlay video {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+  .camera-overlay .camera-label {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(200, 120, 60, 0.85);
+    color: #fff;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .camera-btn-wrap { position: relative; }
+  .camera-picker {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    padding: 4px 0;
+    z-index: 100;
+    min-width: 220px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    display: none;
+  }
+  .camera-picker.visible { display: block; }
+  .camera-picker-item {
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .camera-picker-item:hover { background: rgba(255,255,255,0.08); }
+  .cam-opacity-bar {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    z-index: 16;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(6px);
+    padding: 5px 12px;
+    border-radius: 6px;
+  }
+  .cam-opacity-bar.active { display: flex; }
+  .cam-opacity-bar label {
+    font-size: 11px;
+    color: rgba(200, 120, 60, 0.9);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .cam-opacity-slider {
+    -webkit-appearance: none;
+    width: 120px;
+    height: 5px;
+    border-radius: 3px;
+    outline: none;
+    background: linear-gradient(to right, rgba(200,120,60,0.3), rgba(200,120,60,0.9));
+  }
+  .cam-opacity-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    background: rgb(200, 120, 60);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 6px rgba(0,0,0,0.5);
+  }
+  .cam-opacity-value {
+    font-size: 11px;
+    font-family: 'Consolas', monospace;
+    color: var(--text-dim);
+    min-width: 28px;
+    text-align: center;
+  }
+  .btn.active { background: #333; border-color: var(--accent); }
+
+  /* Right sidebar — favourites */
+  .right-sidebar {
+    width: 0;
+    min-width: 0;
+    background: var(--surface);
+    border-left: 1px solid rgba(255,255,255,0.05);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+    transition: width 0.2s ease, min-width 0.2s ease;
+  }
+  .right-sidebar.open {
+    width: 240px;
+    min-width: 240px;
+  }
+  .right-sidebar .section-header {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .right-sidebar .section-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2px 0;
+  }
+  .right-sidebar .section-body::-webkit-scrollbar { width: 6px; }
+  .right-sidebar .section-body::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+  .fav-item {
+    display: flex;
+    align-items: center;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+    gap: 8px;
+    border-left: 3px solid transparent;
+  }
+  .fav-item:hover { background: rgba(255,255,255,0.03); }
+  .fav-item.active {
+    background: rgba(192,192,192,0.08);
+    border-left-color: var(--accent);
+  }
+  .fav-item .fav-name {
+    font-size: 11px;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fav-item .fav-remove {
+    font-size: 14px;
+    color: var(--text-dim);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .fav-item:hover .fav-remove { opacity: 1; }
+  .fav-item .fav-remove:hover { color: #e06060; }
+  .fav-empty-msg {
+    padding: 12px;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  /* Star button on file items */
+  .file-star {
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text-dim);
+    opacity: 0.3;
+    transition: opacity 0.15s, color 0.15s;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .file-item:hover .file-star { opacity: 0.7; }
+  .file-star.starred { color: #e0c050; opacity: 1 !important; }
+  .file-star:hover { opacity: 1 !important; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>CUE PLAYER</h1>
+  <div class="header-actions">
+    <button class="btn" id="btnLoadMedia" title="Load media file">Load Media</button>
+    <button class="btn" id="btnWatchFolder" title="Watch a folder for new recordings">Watch Folder</button>
+    <div class="camera-btn-wrap">
+      <button class="btn" id="btnCamera" title="Toggle live camera overlay (C)">Camera</button>
+      <div class="camera-picker" id="cameraPicker"></div>
+    </div>
+    <button class="btn" id="btnCompare" title="Open compare mode with current video">Compare</button>
+    <button class="btn" id="btnFavourites" title="Toggle favourites panel">&#9733;</button>
+    <span class="watch-indicator" id="watchIndicator" style="display:none;">
+      <span class="watch-dot"></span>
+      <span id="watchLabel">Watching</span>
+      <span class="watch-toggle on" id="watchAutoLoad" title="Toggle auto-load: ON = load new files, OFF = hold"></span>
+    </span>
+    <span class="tx-indicator" id="txIndicator" title="OSC output (click to toggle)">
+      <span class="tx-dot"></span>TX
+    </span>
+    <span class="rx-indicator" id="rxIndicator" title="OSC input (click to toggle)">
+      <span class="rx-dot"></span>RX
+    </span>
+    <button class="btn" id="btnSettings" title="Integration settings">&#9881;</button>
+    <button class="btn" id="btnShortcuts" title="Keyboard shortcuts">?</button>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Left sidebar: collapsible sections -->
+  <div class="left-sidebar">
+    <!-- Files section -->
+    <div class="sidebar-section collapsed" id="fileBrowserSection" data-section="files">
+      <div class="section-header" data-toggle="files">
+        <span class="chevron">&#9660;</span>
+        <span class="section-title" id="fileBrowserFolder">Files</span>
+        <span class="section-badge" id="fileBadge"></span>
+      </div>
+      <div class="section-body" id="fileList">
+        <div class="file-empty-msg">No watch folder active.</div>
+      </div>
+      <div class="section-footer" id="fileCount"></div>
+    </div>
+
+    <!-- Search section -->
+    <div class="sidebar-section collapsed" id="cueSearchSection" data-section="search">
+      <div class="section-header" data-toggle="search">
+        <span class="chevron">&#9660;</span>
+        <span class="section-title">Search</span>
+        <input type="text" class="cue-search-input" id="cueSearchInput" placeholder="Cue #..." autocomplete="off" onclick="event.stopPropagation()">
+      </div>
+      <div class="section-body" id="searchResults">
+        <div class="search-empty-msg">Type a cue number to find matching videos.</div>
+      </div>
+      <div class="section-footer" id="searchStatus">
+        <span style="display:flex;align-items:center;gap:4px;"><span class="index-dot" id="indexDot"></span> <span id="indexLabel">No index</span></span>
+        <span id="indexCount"></span>
+      </div>
+    </div>
+
+    <!-- Cue list section -->
+    <div class="sidebar-section" id="cueListSection" data-section="cues">
+      <div class="section-header" data-toggle="cues">
+        <span class="chevron">&#9660;</span>
+        <span class="section-title">Cue List</span>
+        <span class="section-badge" id="cueBadge"></span>
+      </div>
+      <div class="section-body cue-list" id="cueList">
+        <div class="file-empty-msg">No cues loaded. Load an MP4 with embedded chapters.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Player area -->
+  <div class="player-area">
+    <!-- Media display -->
+    <div class="media-container" id="mediaContainer">
+      <video id="mediaPlayer" preload="auto"></video>
+      <div class="drop-zone" id="dropZone">
+        <div class="drop-zone-icon">&#9654;</div>
+        <p>Drop a media file here or click "Load Media"</p>
+        <p class="hint">Supports MP4, MKV, WebM, MP3, WAV, OGG — chapters auto-extracted from MP4</p>
+      </div>
+      <!-- Live camera overlay -->
+      <div class="camera-overlay" id="cameraOverlay">
+        <video id="cameraFeed" autoplay playsinline muted></video>
+        <div class="camera-label">CAMERA</div>
+      </div>
+      <div class="cam-opacity-bar" id="camOpacityBar">
+        <label>Camera</label>
+        <input type="range" class="cam-opacity-slider" id="camOpacitySlider" min="0" max="1" step="0.01" value="0.5">
+        <span class="cam-opacity-value" id="camOpacityValue">50%</span>
+      </div>
+      <div class="current-cue-display" id="currentCueDisplay">
+        <span class="cue-label">CUE</span>
+        <span id="currentCueName">—</span>
+      </div>
+    </div>
+
+    <!-- Transport controls -->
+    <div class="transport">
+      <button class="transport-btn" id="btnPrevCue" title="Previous cue (Up / Shift+Left)">&#9198;</button>
+      <button class="transport-btn" id="btnSkipBack" title="Nudge back (Left: 1s or 1 frame when zoomed)">&#9194;</button>
+      <button class="transport-btn play-btn" id="btnPlay" title="Play/Pause (Space)">&#9654;</button>
+      <button class="transport-btn" id="btnSkipFwd" title="Nudge forward (Right: 1s or 1 frame when zoomed)">&#9193;</button>
+      <button class="transport-btn" id="btnNextCue" title="Next cue (Down / Shift+Right)">&#9197;</button>
+
+      <div class="time-display" id="timeDisplay">00:00:00 / 00:00:00</div>
+
+      <div class="speed-control">
+        <button class="speed-btn" data-speed="0.5">0.5x</button>
+        <button class="speed-btn active" data-speed="1">1x</button>
+        <button class="speed-btn" data-speed="1.5">1.5x</button>
+        <button class="speed-btn" data-speed="2">2x</button>
+      </div>
+
+      <div class="volume-control">
+        <span style="font-size: 14px;">&#128264;</span>
+        <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.05" value="1">
+      </div>
+    </div>
+
+    <!-- Timeline -->
+    <div class="timeline-container" id="timelineContainer">
+      <div class="zoom-controls">
+        <button class="zoom-btn" id="zoomOut" title="Zoom out (Ctrl+-)">−</button>
+        <span class="zoom-level" id="zoomLevel">1x</span>
+        <button class="zoom-btn" id="zoomIn" title="Zoom in (Ctrl++)">+</button>
+        <button class="zoom-btn" id="zoomFit" title="Fit to window" style="font-size:10px;width:auto;padding:0 6px;">Fit</button>
+        <div class="marker-controls" id="markerControls">
+          <span class="marker-count-label" id="markerCountLabel"></span>
+          <div class="marker-colour-btn" id="markerColourBtn" title="Marker colour (click to change)" style="background:#e06060;">
+            <div class="marker-palette" id="markerPalette"></div>
+          </div>
+        </div>
+      </div>
+      <div class="timeline-scroll" id="timelineScroll">
+        <div class="timeline-inner" id="timelineInner">
+          <div class="chapter-labels" id="chapterLabels"></div>
+          <div class="timeline-track-area" id="timelineTrackArea">
+            <div class="timeline-track"></div>
+            <div class="timeline-progress" id="timelineProgress"></div>
+            <div class="timeline-playhead" id="timelinePlayhead"></div>
+            <div class="timeline-tooltip" id="timelineTooltip"></div>
+          </div>
+          <div class="time-ruler" id="timeRuler"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right sidebar: favourites -->
+  <div class="right-sidebar" id="rightSidebar">
+    <div class="section-header">
+      <span class="section-title">&#9733; Favourites</span>
+      <span class="section-badge" id="favBadge"></span>
+    </div>
+    <div class="section-body" id="favList">
+      <div class="fav-empty-msg">No favourites yet.<br>Click the &#9733; on any file in the file list, or right-click a file to star it.</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Keyboard shortcuts overlay -->
+<div class="shortcuts-overlay" id="shortcutsOverlay">
+  <div class="shortcuts-panel">
+    <h2>Keyboard Shortcuts</h2>
+    <div class="shortcut-row"><span>Play / Pause</span><kbd>Space</kbd></div>
+    <div class="shortcut-row"><span>Previous cue</span><kbd>↑</kbd></div>
+    <div class="shortcut-row"><span>Next cue</span><kbd>↓</kbd></div>
+    <div class="shortcut-row"><span>Nudge back (1s / 1 frame zoomed)</span><kbd>←</kbd></div>
+    <div class="shortcut-row"><span>Nudge forward (1s / 1 frame zoomed)</span><kbd>→</kbd></div>
+    <div class="shortcut-row"><span>Previous cue (alt)</span><kbd>Shift + ←</kbd></div>
+    <div class="shortcut-row"><span>Next cue (alt)</span><kbd>Shift + →</kbd></div>
+    <div class="shortcut-row"><span>Drop marker</span><kbd>M</kbd></div>
+    <div class="shortcut-row"><span>Remove nearest marker</span><kbd>Shift + M</kbd></div>
+    <div class="shortcut-row"><span>Jump to start</span><kbd>Home</kbd></div>
+    <div class="shortcut-row"><span>Jump to end</span><kbd>End</kbd></div>
+    <div class="shortcut-row"><span>Toggle camera</span><kbd>C</kbd></div>
+    <div class="shortcut-row"><span>Toggle fullscreen</span><kbd>F</kbd></div>
+    <div class="shortcut-row"><span>Zoom in timeline</span><kbd>Ctrl + =</kbd></div>
+    <div class="shortcut-row"><span>Zoom out timeline</span><kbd>Ctrl + -</kbd></div>
+    <div class="shortcut-row"><span>Zoom fit timeline</span><kbd>Ctrl + 0</kbd></div>
+    <div class="shortcut-row"><span>Close this help</span><kbd>?</kbd> or <kbd>Esc</kbd></div>
+    <br>
+    <p style="font-size: 12px; color: var(--text-dim);">
+      <strong>Chapter title format:</strong><br>
+      <code style="font-size: 11px;">134.5 Reveal Magic</code> — cue number is parsed from the leading number<br><br>
+      <strong>Watch Folder:</strong> monitors a folder and auto-loads the newest recording when it appears.
+    </p>
+  </div>
+</div>
+
+<!-- Settings overlay -->
+<div class="settings-overlay" id="settingsOverlay">
+  <div class="settings-panel">
+    <h2>Integration Settings</h2>
+
+    <div class="settings-section">
+      <h3><span class="conn-status" id="etcStatus"></span> ETC Eos</h3>
+      <div class="settings-row">
+        <label>Enable</label>
+        <span class="toggle-switch" id="etcEnable"></span>
+      </div>
+      <div class="settings-row">
+        <label>IP Address</label>
+        <input type="text" id="etcIp" placeholder="192.168.1.100">
+      </div>
+      <div class="settings-row">
+        <label>Port</label>
+        <input type="number" id="etcPort" value="3032" min="1" max="65535">
+      </div>
+      <div class="settings-row">
+        <label>Cue List</label>
+        <input type="number" id="etcCueList" value="1" min="1" max="999">
+      </div>
+      <div class="settings-hint">OSC: /eos/cue/{list}/{cueNum}/fire — via bridge on localhost:9100</div>
+    </div>
+
+    <div class="settings-section">
+      <h3><span class="conn-status" id="disguiseStatus"></span> disguise</h3>
+      <div class="settings-row">
+        <label>Enable</label>
+        <span class="toggle-switch" id="disguiseEnable"></span>
+      </div>
+      <div class="settings-row">
+        <label>IP Address</label>
+        <input type="text" id="disguiseIp" placeholder="192.168.1.200">
+      </div>
+      <div class="settings-row">
+        <label>Port</label>
+        <input type="number" id="disguisePort" value="8000" min="1" max="65535">
+      </div>
+      <div class="settings-hint">OSC: /d3/showcontrol/cue [cue parts] — via bridge on localhost:9100</div>
+    </div>
+
+    <div class="settings-section">
+      <h3>OSC Input (RX)</h3>
+      <div class="settings-row">
+        <label>Enable</label>
+        <span class="toggle-switch" id="rxEnable"></span>
+      </div>
+      <div class="settings-row">
+        <label>Listen Port</label>
+        <input type="number" id="rxPort" value="9101" min="1" max="65535">
+      </div>
+      <div class="settings-hint" style="margin-bottom: 6px;">
+        OSC addresses for remote control:
+      </div>
+      <div class="settings-hint">/cue/player/play &nbsp;|&nbsp; /pause &nbsp;|&nbsp; /toggle &nbsp;|&nbsp; /stop</div>
+      <div class="settings-hint">/cue/player/next &nbsp;|&nbsp; /prev</div>
+      <div class="settings-hint">/cue/player/goto [cueNum] &nbsp;|&nbsp; /seek [seconds]</div>
+    </div>
+
+    <div class="settings-section">
+      <h3>OSC Bridge</h3>
+      <div class="settings-row">
+        <label>Status</label>
+        <span class="conn-status" id="bridgeStatus"></span>
+        <span id="bridgeLabel" style="font-size:12px; color:var(--text-dim);">Not connected</span>
+      </div>
+      <div class="settings-hint">OSC bridge on ws://localhost:9100 (built-in when running as app, or run: node osc-bridge.js)</div>
+    </div>
+
+    <p style="font-size: 11px; color: var(--text-dim); margin-top: 8px;">
+      Settings are saved locally and persist between sessions.
+    </p>
+  </div>
+</div>
+
+<!-- Hidden file inputs -->
+<input type="file" class="hidden-input" id="mediaInput" accept="video/*,audio/*,.mkv,.mp4,.webm,.ogg,.mp3,.wav,.flac,.m4a">
+
+<script>
+(() => {
+  // State
+  let chapters = [];
+  let currentChapterIndex = -1;
+  let duration = 0;
+  let isPlaying = false;
+  let isSeeking = false;
+  let watchDirHandle = null;
+  let watchInterval = null;
+  let lastWatchedFile = null;
+  let watchAutoLoadEnabled = true;
+  let watchPendingFile = null;
+  let currentMediaFile = null; // Track current File object for compare passthrough
+
+  // ---- SESSION MARKERS ----
+  // Map<string, Array<{id, time, colour}>> keyed by file name — session only
+  const sessionMarkers = new Map();
+  let markerIdCounter = 0;
+  let currentMarkerColour = '#e06060';
+  const MARKER_COLOURS = [
+    { colour: '#e06060', label: 'Red' },
+    { colour: '#e0a040', label: 'Orange' },
+    { colour: '#e0e040', label: 'Yellow' },
+    { colour: '#60c060', label: 'Green' },
+    { colour: '#6090e0', label: 'Blue' },
+    { colour: '#a060e0', label: 'Purple' },
+    { colour: '#e0e0e0', label: 'White' },
+  ];
+
+  // ---- FAVOURITES ----
+  // Set<string> of file names starred this session
+  const favourites = new Set();
+
+  // DOM refs
+  const player = document.getElementById('mediaPlayer');
+  const dropZone = document.getElementById('dropZone');
+  const mediaContainer = document.getElementById('mediaContainer');
+  const cueList = document.getElementById('cueList');
+  const chapterLabels = document.getElementById('chapterLabels');
+  const timelineTrackArea = document.getElementById('timelineTrackArea');
+  const timelineProgress = document.getElementById('timelineProgress');
+  const timelinePlayhead = document.getElementById('timelinePlayhead');
+  const timelineTooltip = document.getElementById('timelineTooltip');
+  const timeRuler = document.getElementById('timeRuler');
+  const timelineScroll = document.getElementById('timelineScroll');
+  const timelineInner = document.getElementById('timelineInner');
+  const zoomLevelEl = document.getElementById('zoomLevel');
+  let timelineZoom = 1; // 1 = fit to window, 2 = 2x width, etc.
+  const timeDisplay = document.getElementById('timeDisplay');
+  const currentCueDisplay = document.getElementById('currentCueDisplay');
+  const currentCueName = document.getElementById('currentCueName');
+  const btnPlay = document.getElementById('btnPlay');
+  const volumeSlider = document.getElementById('volumeSlider');
+  const shortcutsOverlay = document.getElementById('shortcutsOverlay');
+
+  // ---- COLLAPSIBLE SIDEBAR SECTIONS ----
+  // Track sections the user has manually collapsed so auto-expand doesn't override
+  const userCollapsedSections = new Set();
+
+  document.querySelectorAll('.section-header[data-toggle]').forEach(header => {
+    header.addEventListener('click', (e) => {
+      // Don't toggle when clicking the search input inside the header
+      if (e.target.tagName === 'INPUT') return;
+      const section = header.closest('.sidebar-section');
+      const sectionId = section.dataset.section;
+      section.classList.toggle('collapsed');
+      if (section.classList.contains('collapsed')) {
+        userCollapsedSections.add(sectionId);
+      } else {
+        userCollapsedSections.delete(sectionId);
+      }
+    });
+  });
+
+  // Utility: format seconds to HH:MM:SS
+  function fmt(s) {
+    if (!isFinite(s) || s < 0) s = 0;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  }
+
+  // ---- CUE NUMBER PARSER ----
+  // Parses chapter titles like "134.5 Reveal Magic" into { cueNum: "134.5", cueName: "Reveal Magic" }
+  // Also handles: "Start", "137 **AUTO Q** Reveal Skyline", "LX Cue 10 - Act I Scene 1"
+  function parseCueTitle(title) {
+    if (!title) return { cueNum: '', cueName: title || '' };
+
+    // Pattern 1: Title starts with a number (with optional decimal), e.g. "134.5 Reveal Magic"
+    const numericMatch = title.match(/^(\d+(?:\.\d+)?)\s+(.*)/);
+    if (numericMatch) {
+      return { cueNum: numericMatch[1], cueName: numericMatch[2] };
+    }
+
+    // Pattern 2: "LX Cue 10 - Something" or "Cue 5.2 - Something"
+    const cueMatch = title.match(/(?:LX\s+)?Cue\s+(\d+(?:\.\d+)?)\s*[-–]\s*(.*)/i);
+    if (cueMatch) {
+      return { cueNum: cueMatch[1], cueName: cueMatch[2] };
+    }
+
+    // Pattern 3: No number found — treat the whole thing as the name
+    return { cueNum: '', cueName: title };
+  }
+
+  // Colors for chapter labels (rotating palette)
+  const chapterColors = [
+    'rgba(192, 192, 192, 0.06)',
+    'rgba(160, 160, 160, 0.08)',
+    'rgba(128, 128, 128, 0.06)',
+    'rgba(192, 192, 192, 0.04)',
+    'rgba(160, 160, 160, 0.06)',
+    'rgba(128, 128, 128, 0.04)',
+  ];
+
+  // ---- MP4 CHAPTER PARSER ----
+  // Parses the ISO BMFF (MP4) container to extract embedded chapter markers.
+  // Supports: Nero chapters (udta > chpl), Apple chapter tracks, and
+  // common metadata chapter atoms.
+
+  class MP4ChapterParser {
+    constructor(buffer) {
+      this.view = new DataView(buffer);
+      this.buffer = buffer;
+      this.size = buffer.byteLength;
+    }
+
+    // Read a big-endian uint32
+    u32(offset) { return this.view.getUint32(offset, false); }
+    // Read a big-endian uint64 (as Number — fine for file offsets < 2^53)
+    u64(offset) {
+      const hi = this.u32(offset);
+      const lo = this.u32(offset + 4);
+      return hi * 0x100000000 + lo;
+    }
+    // Read a big-endian uint16
+    u16(offset) { return this.view.getUint16(offset, false); }
+    // Read a big-endian int32
+    i32(offset) { return this.view.getInt32(offset, false); }
+
+    // Read ASCII string
+    ascii(offset, len) {
+      let s = '';
+      for (let i = 0; i < len; i++) {
+        const c = this.view.getUint8(offset + i);
+        if (c === 0) break;
+        s += String.fromCharCode(c);
+      }
+      return s;
+    }
+
+    // Read UTF-8 string
+    utf8(offset, len) {
+      const bytes = new Uint8Array(this.buffer, offset, len);
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+
+    // Iterate over boxes at a given level
+    *boxes(start, end) {
+      let pos = start;
+      while (pos + 8 <= end) {
+        let boxSize = this.u32(pos);
+        const boxType = this.ascii(pos + 4, 4);
+        let headerSize = 8;
+
+        if (boxSize === 1 && pos + 16 <= end) {
+          // 64-bit extended size
+          boxSize = this.u64(pos + 8);
+          headerSize = 16;
+        } else if (boxSize === 0) {
+          // Box extends to end of file
+          boxSize = end - pos;
+        }
+
+        if (boxSize < headerSize || pos + boxSize > end) break;
+
+        yield {
+          type: boxType,
+          offset: pos,
+          headerSize,
+          dataOffset: pos + headerSize,
+          size: boxSize,
+          dataSize: boxSize - headerSize,
+          end: pos + boxSize
+        };
+
+        pos += boxSize;
+      }
+    }
+
+    // Find a box by path e.g. ['moov', 'udta', 'chpl']
+    findBox(path, start = 0, end = this.size) {
+      if (path.length === 0) return null;
+      for (const box of this.boxes(start, end)) {
+        if (box.type === path[0]) {
+          if (path.length === 1) return box;
+          // Container boxes: recurse into children
+          return this.findBox(path.slice(1), box.dataOffset, box.end);
+        }
+      }
+      return null;
+    }
+
+    // Find all boxes of a given type at a level
+    findAllBoxes(type, start, end) {
+      const results = [];
+      for (const box of this.boxes(start, end)) {
+        if (box.type === type) results.push(box);
+      }
+      return results;
+    }
+
+    // Parse Nero-style chapters from udta > chpl
+    parseNeroChapters() {
+      const chpl = this.findBox(['moov', 'udta', 'chpl']);
+      if (!chpl) return null;
+
+      const chapters = [];
+      let pos = chpl.dataOffset;
+      const end = chpl.end;
+
+      // chpl box: version(4 bytes) + reserved(1 byte) + entry_count
+      // Version 1: 4 bytes version + 1 byte reserved + 4 bytes count (but sometimes varies)
+      // We try to be flexible
+      if (pos + 5 > end) return null;
+
+      const version = this.view.getUint8(pos);
+      pos += 4; // skip version + flags
+
+      // Some encoders use 1 byte for entry count, others use 4
+      let entryCount;
+      if (version === 1) {
+        // skip unknown byte
+        pos += 1;
+        if (pos + 4 > end) return null;
+        entryCount = this.u32(pos);
+        pos += 4;
+      } else {
+        pos += 1; // skip reserved
+        if (pos + 1 > end) return null;
+        entryCount = this.view.getUint8(pos);
+        pos += 1;
+      }
+
+      for (let i = 0; i < entryCount && pos + 9 < end; i++) {
+        // timestamp: 8 bytes (100ns units)
+        const timestamp = this.u64(pos);
+        pos += 8;
+        // title length: 1 byte
+        const titleLen = this.view.getUint8(pos);
+        pos += 1;
+        if (pos + titleLen > end) break;
+        const title = this.utf8(pos, titleLen);
+        pos += titleLen;
+
+        chapters.push({
+          title: title || `Chapter ${i + 1}`,
+          start: timestamp / 10000000 // Convert 100ns to seconds
+        });
+      }
+
+      return chapters.length > 0 ? chapters : null;
+    }
+
+    // Helper: read track ID from tkhd box
+    getTrackId(tkhd) {
+      // tkhd: version(1) + flags(3) then v0: creation(4)+modification(4)+track_id(4)
+      //                                   v1: creation(8)+modification(8)+track_id(4)
+      const v = this.view.getUint8(tkhd.dataOffset);
+      if (v === 1) {
+        return this.u32(tkhd.dataOffset + 4 + 16); // skip ver+flags(4) + creation(8) + modification(8)
+      } else {
+        return this.u32(tkhd.dataOffset + 4 + 8); // skip ver+flags(4) + creation(4) + modification(4)
+      }
+    }
+
+    // Extract Apple chapter metadata (timing + absolute file offsets + sizes)
+    // without reading the actual sample text data. Used for two-phase parsing
+    // where sample text is read separately (e.g. via file.slice for large files).
+    parseAppleChapterMeta() {
+      const moov = this.findBox(['moov']);
+      if (!moov) return null;
+
+      const traks = this.findAllBoxes('trak', moov.dataOffset, moov.end);
+
+      // Strategy 1: Find chapter track ID via tref > chap reference
+      let chapterTrackId = null;
+      for (const trak of traks) {
+        const tref = this.findBox(['tref'], trak.dataOffset, trak.end);
+        if (tref) {
+          const chap = this.findBox(['chap'], tref.dataOffset, tref.end);
+          if (chap && chap.dataSize >= 4) {
+            chapterTrackId = this.u32(chap.dataOffset);
+            break;
+          }
+        }
+      }
+
+      // Strategy 2: Find a track with 'text' handler type
+      if (chapterTrackId === null) {
+        for (const trak of traks) {
+          const hdlr = this.findBox(['mdia', 'hdlr'], trak.dataOffset, trak.end);
+          if (hdlr) {
+            const handlerType = this.ascii(hdlr.dataOffset + 8, 4);
+            if (handlerType === 'text' || handlerType === 'sbtl') {
+              const tkhd = this.findBox(['tkhd'], trak.dataOffset, trak.end);
+              if (tkhd) {
+                chapterTrackId = this.getTrackId(tkhd);
+              }
+              break;
+            }
+          }
+        }
+      }
+
+      if (chapterTrackId === null) return null;
+      console.log(`[CuePlayer] Found chapter track ID: ${chapterTrackId}`);
+
+      // Find the actual chapter trak by matching track ID
+      let chapterTrak = null;
+      for (const trak of traks) {
+        const tkhd = this.findBox(['tkhd'], trak.dataOffset, trak.end);
+        if (tkhd && this.getTrackId(tkhd) === chapterTrackId) {
+          chapterTrak = trak;
+          break;
+        }
+      }
+      if (!chapterTrak) return null;
+
+      // Get timescale from mdhd
+      const mdhd = this.findBox(['mdia', 'mdhd'], chapterTrak.dataOffset, chapterTrak.end);
+      if (!mdhd) return null;
+      const mdhdVersion = this.view.getUint8(mdhd.dataOffset);
+      let timescale;
+      if (mdhdVersion === 1) {
+        timescale = this.u32(mdhd.dataOffset + 4 + 16);
+      } else {
+        timescale = this.u32(mdhd.dataOffset + 4 + 8);
+      }
+      if (!timescale) return null;
+      console.log(`[CuePlayer] Chapter track timescale: ${timescale}`);
+
+      // Get sample durations from stts → compute start times
+      const stts = this.findBox(['mdia', 'minf', 'stbl', 'stts'], chapterTrak.dataOffset, chapterTrak.end);
+      if (!stts) return null;
+
+      let sttsPos = stts.dataOffset + 4;
+      const sttsEntryCount = this.u32(sttsPos);
+      sttsPos += 4;
+
+      const sampleTimes = [];
+      let currentTime = 0;
+      for (let i = 0; i < sttsEntryCount && sttsPos + 8 <= stts.end; i++) {
+        const count = this.u32(sttsPos);
+        const delta = this.u32(sttsPos + 4);
+        sttsPos += 8;
+        for (let j = 0; j < count; j++) {
+          sampleTimes.push(currentTime / timescale);
+          currentTime += delta;
+        }
+      }
+
+      // Get sample sizes from stsz
+      const stsz = this.findBox(['mdia', 'minf', 'stbl', 'stsz'], chapterTrak.dataOffset, chapterTrak.end);
+      if (!stsz) return null;
+
+      let stszPos = stsz.dataOffset + 4;
+      const defaultSampleSize = this.u32(stszPos);
+      stszPos += 4;
+      const totalSamples = this.u32(stszPos);
+      stszPos += 4;
+
+      const sampleSizes = [];
+      for (let i = 0; i < totalSamples; i++) {
+        sampleSizes.push(defaultSampleSize || this.u32(stszPos + i * 4));
+      }
+
+      // Get chunk offsets from stco or co64
+      const stco = this.findBox(['mdia', 'minf', 'stbl', 'stco'], chapterTrak.dataOffset, chapterTrak.end);
+      const co64 = !stco ? this.findBox(['mdia', 'minf', 'stbl', 'co64'], chapterTrak.dataOffset, chapterTrak.end) : null;
+      if (!stco && !co64) return null;
+
+      const chunkOffsets = [];
+      if (stco) {
+        let pos = stco.dataOffset + 4;
+        const count = this.u32(pos); pos += 4;
+        for (let i = 0; i < count; i++) {
+          chunkOffsets.push(this.u32(pos + i * 4));
+        }
+      } else {
+        let pos = co64.dataOffset + 4;
+        const count = this.u32(pos); pos += 4;
+        for (let i = 0; i < count; i++) {
+          chunkOffsets.push(this.u64(pos + i * 8));
+        }
+      }
+
+      // Get sample-to-chunk mapping from stsc
+      const stsc = this.findBox(['mdia', 'minf', 'stbl', 'stsc'], chapterTrak.dataOffset, chapterTrak.end);
+      if (!stsc) return null;
+
+      let stscPos = stsc.dataOffset + 4;
+      const stscEntryCount = this.u32(stscPos);
+      stscPos += 4;
+
+      const stscEntries = [];
+      for (let i = 0; i < stscEntryCount && stscPos + 12 <= stsc.end; i++) {
+        stscEntries.push({
+          firstChunk: this.u32(stscPos),
+          samplesPerChunk: this.u32(stscPos + 4),
+          descIndex: this.u32(stscPos + 8)
+        });
+        stscPos += 12;
+      }
+
+      // Resolve: map each sample index to its absolute file offset
+      const sampleOffsets = [];
+      let sampleIdx = 0;
+      for (let chunkIdx = 0; chunkIdx < chunkOffsets.length && sampleIdx < totalSamples; chunkIdx++) {
+        let samplesInChunk = 1;
+        for (let e = stscEntries.length - 1; e >= 0; e--) {
+          if ((chunkIdx + 1) >= stscEntries[e].firstChunk) {
+            samplesInChunk = stscEntries[e].samplesPerChunk;
+            break;
+          }
+        }
+
+        let offsetInChunk = 0;
+        for (let s = 0; s < samplesInChunk && sampleIdx < totalSamples; s++) {
+          sampleOffsets.push(chunkOffsets[chunkIdx] + offsetInChunk);
+          offsetInChunk += sampleSizes[sampleIdx];
+          sampleIdx++;
+        }
+      }
+
+      const count = Math.min(sampleTimes.length, sampleSizes.length, sampleOffsets.length);
+      if (count === 0) return null;
+
+      return { sampleTimes, sampleOffsets, sampleSizes, count };
+    }
+
+    // Parse Apple-style chapter track — reads sample text from the buffer.
+    // For large files where samples may be out of range, use parseAppleChapterMeta()
+    // and read samples individually via file.slice().
+    parseAppleChapters() {
+      const meta = this.parseAppleChapterMeta();
+      if (!meta) return null;
+
+      const { sampleTimes, sampleOffsets, sampleSizes, count } = meta;
+      const chapters = [];
+      for (let i = 0; i < count; i++) {
+        const offset = sampleOffsets[i];
+        const size = sampleSizes[i];
+        if (offset + size > this.size) {
+          // Sample data is outside this buffer — skip (caller should use
+          // parseAppleChapterMeta + file.slice for these)
+          continue;
+        }
+
+        let title = '';
+        if (size >= 2) {
+          const textLen = this.u16(offset);
+          if (textLen > 0 && offset + 2 + textLen <= this.size) {
+            title = this.utf8(offset + 2, Math.min(textLen, size - 2));
+          }
+        }
+
+        chapters.push({
+          title: title || `Chapter ${i + 1}`,
+          start: sampleTimes[i]
+        });
+      }
+
+      return chapters.length > 0 ? chapters : null;
+    }
+
+    // Try all parsers
+    parse() {
+      // Try Nero first (simpler, very common)
+      let chapters = this.parseNeroChapters();
+      if (chapters && chapters.length > 0) {
+        console.log(`[CuePlayer] Found ${chapters.length} Nero-style chapters`);
+        return chapters;
+      }
+
+      // Try Apple chapter track
+      chapters = this.parseAppleChapters();
+      if (chapters && chapters.length > 0) {
+        console.log(`[CuePlayer] Found ${chapters.length} Apple-style chapters`);
+        return chapters;
+      }
+
+      console.log('[CuePlayer] No embedded chapters found in file');
+      return null;
+    }
+  }
+
+  // Scan top-level MP4 boxes to find the moov atom location and size.
+  // Only reads 16-byte headers per box, so it's very fast even for huge files.
+  async function findMoovInFile(file) {
+    let pos = 0;
+    while (pos < file.size) {
+      const headerBlob = file.slice(pos, Math.min(pos + 16, file.size));
+      const hdr = await headerBlob.arrayBuffer();
+      if (hdr.byteLength < 8) break;
+      const hView = new DataView(hdr);
+      let boxSize = hView.getUint32(0, false);
+      const boxType = String.fromCharCode(
+        hView.getUint8(4), hView.getUint8(5), hView.getUint8(6), hView.getUint8(7)
+      );
+      if (boxSize === 1 && hdr.byteLength >= 16) {
+        boxSize = hView.getUint32(8, false) * 0x100000000 + hView.getUint32(12, false);
+      } else if (boxSize === 0) {
+        boxSize = file.size - pos;
+      }
+      if (boxType === 'moov') return { offset: pos, size: boxSize };
+      if (boxSize < 8) break;
+      pos += boxSize;
+    }
+    return null;
+  }
+
+  // Read a single Apple text sample from a File and return the title string
+  async function readAppleTextSample(file, offset, size) {
+    if (offset + size > file.size || size < 2) return '';
+    const blob = file.slice(offset, offset + size);
+    const buf = await blob.arrayBuffer();
+    const view = new DataView(buf);
+    const textLen = view.getUint16(0, false);
+    if (textLen > 0 && 2 + textLen <= size) {
+      return new TextDecoder('utf-8').decode(new Uint8Array(buf, 2, textLen));
+    }
+    return '';
+  }
+
+  // Read chapters from a File object
+  async function extractChaptersFromFile(file) {
+    const SMALL_FILE_LIMIT = 500 * 1024 * 1024; // 500MB
+
+    // Small files: read entire file into memory — simple and reliable
+    if (file.size <= SMALL_FILE_LIMIT) {
+      const buffer = await file.arrayBuffer();
+      const parser = new MP4ChapterParser(buffer);
+      return parser.parse();
+    }
+
+    // Large files: locate the moov atom directly, read only what we need
+    console.log(`[CuePlayer] Large file (${(file.size / 1024 / 1024 / 1024).toFixed(1)}GB) — scanning for moov atom`);
+
+    const moovInfo = await findMoovInFile(file);
+    if (!moovInfo) {
+      console.warn('[CuePlayer] Could not find moov atom in file');
+      return null;
+    }
+    console.log(`[CuePlayer] Found moov at offset ${moovInfo.offset}, size ${(moovInfo.size / 1024).toFixed(0)}KB`);
+
+    // Read the full moov atom (typically small — a few hundred KB even for complex files)
+    const moovBlob = file.slice(moovInfo.offset, moovInfo.offset + moovInfo.size);
+    const moovBuffer = await moovBlob.arrayBuffer();
+    const parser = new MP4ChapterParser(moovBuffer);
+
+    // Try Nero chapters first — all data is inside moov, so this always works
+    let result = parser.parseNeroChapters();
+    if (result && result.length > 0) {
+      console.log(`[CuePlayer] Found ${result.length} Nero-style chapters`);
+      return result;
+    }
+
+    // Try Apple chapters — metadata is in moov, but sample text is in mdat.
+    // Extract metadata (timing + absolute file offsets), then read each
+    // sample individually using file.slice().
+    const meta = parser.parseAppleChapterMeta();
+    if (meta && meta.count > 0) {
+      console.log(`[CuePlayer] Found Apple chapter metadata for ${meta.count} chapters — reading sample text`);
+      const chapters = [];
+      // Batch reads in groups to avoid overwhelming the browser
+      const BATCH = 50;
+      for (let i = 0; i < meta.count; i += BATCH) {
+        const batch = [];
+        for (let j = i; j < Math.min(i + BATCH, meta.count); j++) {
+          batch.push(
+            readAppleTextSample(file, meta.sampleOffsets[j], meta.sampleSizes[j])
+              .then(title => ({ title, start: meta.sampleTimes[j], idx: j }))
+          );
+        }
+        const results = await Promise.all(batch);
+        for (const r of results) {
+          chapters.push({
+            title: r.title || `Chapter ${r.idx + 1}`,
+            start: r.start
+          });
+        }
+      }
+      if (chapters.length > 0) {
+        console.log(`[CuePlayer] Read ${chapters.length} Apple-style chapters from file`);
+        return chapters;
+      }
+    }
+
+    console.warn('[CuePlayer] No embedded chapters found in file');
+    return null;
+  }
+
+  // ---- MEDIA LOADING ----
+  let currentBlobUrl = null;
+  let loadGeneration = 0; // increments on each load to detect stale callbacks
+
+  async function loadMediaFile(file) {
+    // Cancel any in-flight play promise and reset state
+    loadGeneration++;
+    const thisLoad = loadGeneration;
+    player.pause();
+    isPlaying = false;
+    btnPlay.innerHTML = '&#9654;';
+
+    // Revoke previous blob URL to free memory
+    if (currentBlobUrl) {
+      URL.revokeObjectURL(currentBlobUrl);
+      currentBlobUrl = null;
+    }
+
+    currentMediaFile = file;
+    const url = URL.createObjectURL(file);
+    currentBlobUrl = url;
+    player.src = url;
+    player.load();
+    dropZone.classList.add('has-media');
+    document.title = `Cue Player — ${file.name}`;
+
+    // Try to extract embedded chapters from MP4
+    if (/\.(mp4|m4v|m4a|mov)$/i.test(file.name) || file.type.includes('mp4') || file.type.includes('quicktime')) {
+      try {
+        const embedded = await extractChaptersFromFile(file);
+        if (embedded && embedded.length > 0) {
+          chapters = embedded.map((ch, i, arr) => ({
+            ...ch,
+            end: (i < arr.length - 1) ? arr[i + 1].start : undefined
+          }));
+          chapters.sort((a, b) => a.start - b.start);
+          // Recompute end times
+          for (let i = 0; i < chapters.length; i++) {
+            if (chapters[i].end === undefined) {
+              chapters[i].end = (i < chapters.length - 1) ? chapters[i + 1].start : (duration || chapters[i].start + 60);
+            }
+          }
+          renderCueList();
+          renderTimeline();
+          console.log(`[CuePlayer] Loaded ${chapters.length} embedded chapters from ${file.name}`);
+        }
+      } catch (err) {
+        console.warn('[CuePlayer] Could not parse embedded chapters:', err);
+      }
+    }
+
+    // Update favourites panel active state when switching files
+    if (favourites.size > 0) renderFavourites();
+  }
+
+  document.getElementById('btnLoadMedia').addEventListener('click', () => {
+    document.getElementById('mediaInput').click();
+  });
+
+  document.getElementById('mediaInput').addEventListener('change', async (e) => {
+    if (e.target.files[0]) await loadMediaFile(e.target.files[0]);
+  });
+
+  // Drag & drop
+  document.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('dragging'); });
+  document.addEventListener('dragleave', (e) => {
+    if (e.relatedTarget === null) document.body.classList.remove('dragging');
+  });
+  document.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    document.body.classList.remove('dragging');
+    const files = e.dataTransfer.files;
+    for (const f of files) {
+      if (f.type.startsWith('video/') || f.type.startsWith('audio/') || /\.(mkv|mp4|webm|ogg|mp3|wav|flac|m4a)$/i.test(f.name)) {
+        await loadMediaFile(f);
+      }
+    }
+  });
+
+  // ---- CUE LIST RENDERING ----
+  // Check if a chapter is a non-cue placeholder (e.g. "Start", intro markers at 0:00)
+  function isPlaceholderChapter(ch, index) {
+    const title = (ch.title || '').trim().toLowerCase();
+    // Skip generic "start" / "intro" / "beginning" markers
+    if (/^(start|intro|beginning|preshow|pre-show)$/i.test(title)) return true;
+    // Skip if it's the first chapter at time 0 with no real cue number
+    const { cueNum } = parseCueTitle(ch.title);
+    if (index === 0 && ch.start === 0 && !cueNum) return true;
+    return false;
+  }
+
+  function renderCueList() {
+    cueList.innerHTML = '';
+    let displayCount = 0;
+
+    // Build list of displayable chapters with their original indices
+    const displayChapters = [];
+    chapters.forEach((ch, i) => {
+      const { cueNum, cueName } = parseCueTitle(ch.title);
+      ch.cueNum = cueNum;
+      ch.cueName = cueName;
+      if (!isPlaceholderChapter(ch, i)) {
+        displayChapters.push({ type: 'cue', chapter: ch, index: i, time: ch.start });
+      }
+    });
+
+    // Get session markers for this file
+    const markers = getMarkersForCurrentFile();
+
+    // Build merged list sorted by time
+    const merged = [];
+    displayChapters.forEach(dc => merged.push(dc));
+    markers.forEach(m => merged.push({ type: 'marker', marker: m, time: m.time }));
+    merged.sort((a, b) => a.time - b.time);
+
+    merged.forEach((item, idx) => {
+      if (item.type === 'cue') {
+        displayCount++;
+        const ch = item.chapter;
+        const el = document.createElement('div');
+        el.className = 'cue-item';
+        el.dataset.index = item.index;
+        el.dataset.cueNum = ch.cueNum;
+        el.innerHTML = `
+          <span class="cue-number">${ch.cueNum || ''}</span>
+          <span class="cue-name" title="${ch.title}">${ch.cueName || ch.title}</span>
+          <span class="cue-time">${fmt(ch.start)}</span>
+        `;
+        el.addEventListener('click', () => seekTo(ch.start));
+        cueList.appendChild(el);
+      } else {
+        // Marker item — find surrounding cues for offset display
+        const m = item.marker;
+        let prevCue = null, nextCue = null;
+        for (let j = idx - 1; j >= 0; j--) {
+          if (merged[j].type === 'cue') { prevCue = merged[j].chapter; break; }
+        }
+        for (let j = idx + 1; j < merged.length; j++) {
+          if (merged[j].type === 'cue') { nextCue = merged[j].chapter; break; }
+        }
+
+        const offsetFromPrev = prevCue ? (m.time - prevCue.start) : null;
+        const offsetToNext = nextCue ? (nextCue.start - m.time) : null;
+
+        let offsetText = '';
+        if (offsetFromPrev !== null && offsetToNext !== null) {
+          offsetText = `+${offsetFromPrev.toFixed(1)}s / -${offsetToNext.toFixed(1)}s`;
+        } else if (offsetFromPrev !== null) {
+          offsetText = `+${offsetFromPrev.toFixed(1)}s from prev`;
+        } else if (offsetToNext !== null) {
+          offsetText = `-${offsetToNext.toFixed(1)}s to next`;
+        }
+
+        const el = document.createElement('div');
+        el.className = 'cue-item marker-item';
+        el.style.setProperty('--marker-colour', m.colour);
+        el.innerHTML = `
+          <span class="cue-number"><span class="marker-dot" style="background:${m.colour}"></span></span>
+          <span class="cue-name">Marker ${fmt(m.time)}${offsetText ? ' <span class="marker-offset">(' + offsetText + ')</span>' : ''}</span>
+          <span class="cue-time">${fmt(m.time)}</span>
+        `;
+        el.addEventListener('click', () => seekTo(m.time));
+        el.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          const mArr = sessionMarkers.get(currentMediaFile.name);
+          if (mArr) {
+            const mIdx = mArr.findIndex(x => x.id === m.id);
+            if (mIdx >= 0) { mArr.splice(mIdx, 1); renderSessionMarkers(); renderCueList(); }
+          }
+        });
+        el.title = 'Click to seek, double-click to remove';
+        cueList.appendChild(el);
+      }
+    });
+
+    // Update badge count
+    const cueBadge = document.getElementById('cueBadge');
+    if (cueBadge) cueBadge.textContent = displayCount > 0 ? displayCount : '';
+
+    // Auto-expand cue list when cues are loaded (unless user manually collapsed it)
+    if (displayCount > 0 && !userCollapsedSections.has('cues')) {
+      document.getElementById('cueListSection').classList.remove('collapsed');
+    }
+  }
+
+  // ---- TIMELINE RENDERING ----
+  function applyTimelineZoom() {
+    timelineInner.style.width = (timelineZoom * 100) + '%';
+    zoomLevelEl.textContent = timelineZoom <= 1 ? '1x' : (timelineZoom % 1 === 0 ? timelineZoom.toFixed(0) : timelineZoom.toFixed(1)) + 'x';
+  }
+
+  function renderTimeline() {
+    applyTimelineZoom();
+
+    // Chapter labels
+    chapterLabels.innerHTML = '';
+    const d = duration || (chapters.length ? chapters[chapters.length - 1].end || 600 : 600);
+
+    chapters.forEach((ch, i) => {
+      const startPct = (ch.start / d) * 100;
+      const endPct = ((ch.end || d) / d) * 100;
+      const widthPct = endPct - startPct;
+
+      const label = document.createElement('div');
+      label.className = 'chapter-label';
+      label.style.left = startPct + '%';
+      label.style.width = widthPct + '%';
+      label.style.background = chapterColors[i % chapterColors.length];
+      label.textContent = ch.title;
+      label.title = `${ch.title} (${fmt(ch.start)})`;
+      label.dataset.index = i;
+      label.addEventListener('click', () => seekTo(ch.start));
+      chapterLabels.appendChild(label);
+    });
+
+    // Chapter ticks on timeline
+    document.querySelectorAll('.chapter-tick').forEach(t => t.remove());
+    chapters.forEach((ch) => {
+      if (ch.start === 0) return;
+      const tick = document.createElement('div');
+      tick.className = 'chapter-tick';
+      tick.style.left = ((ch.start / d) * 100) + '%';
+      timelineTrackArea.appendChild(tick);
+    });
+
+    // Time ruler
+    renderTimeRuler(d);
+
+    // Session markers (re-render on top)
+    renderSessionMarkers();
+  }
+
+  function renderTimeRuler(d) {
+    timeRuler.innerHTML = '';
+    // Adapt interval based on zoom level — more marks when zoomed in
+    const visibleDuration = d / timelineZoom;
+    const interval = visibleDuration > 3600 ? 300 : visibleDuration > 600 ? 60 : visibleDuration > 120 ? 30 : visibleDuration > 30 ? 10 : 5;
+    for (let t = 0; t <= d; t += interval) {
+      const mark = document.createElement('div');
+      mark.className = 'time-ruler-mark';
+      mark.style.left = ((t / d) * 100) + '%';
+      mark.textContent = fmt(t);
+      timeRuler.appendChild(mark);
+    }
+  }
+
+  // ---- SESSION MARKERS ----
+  function getMarkersForCurrentFile() {
+    if (!currentMediaFile) return [];
+    return sessionMarkers.get(currentMediaFile.name) || [];
+  }
+
+  function addSessionMarker() {
+    if (!currentMediaFile || !duration) return;
+    const time = player.currentTime;
+    const markers = sessionMarkers.get(currentMediaFile.name) || [];
+    // Avoid duplicates within 0.5s of existing marker
+    if (markers.some(m => Math.abs(m.time - time) < 0.5)) return;
+    markers.push({ id: ++markerIdCounter, time, colour: currentMarkerColour });
+    markers.sort((a, b) => a.time - b.time);
+    sessionMarkers.set(currentMediaFile.name, markers);
+    renderSessionMarkers();
+    renderCueList();
+    console.log(`[CuePlayer] Marker added at ${fmt(time)} (${currentMarkerColour})`);
+  }
+
+  function removeNearestMarker() {
+    if (!currentMediaFile || !duration) return;
+    const markers = sessionMarkers.get(currentMediaFile.name);
+    if (!markers || markers.length === 0) return;
+    const time = player.currentTime;
+    // Find nearest marker within 5 seconds
+    let nearest = null, nearestDist = Infinity;
+    for (const m of markers) {
+      const dist = Math.abs(m.time - time);
+      if (dist < nearestDist) { nearestDist = dist; nearest = m; }
+    }
+    if (nearest && nearestDist < 5) {
+      const idx = markers.indexOf(nearest);
+      markers.splice(idx, 1);
+      renderSessionMarkers();
+      renderCueList();
+      console.log(`[CuePlayer] Marker removed at ${fmt(nearest.time)}`);
+    }
+  }
+
+  function renderSessionMarkers() {
+    // Remove existing session markers
+    document.querySelectorAll('.session-marker').forEach(el => el.remove());
+    const markers = getMarkersForCurrentFile();
+    const d = duration || 1;
+    const markerCountLabel = document.getElementById('markerCountLabel');
+
+    markers.forEach(m => {
+      const pct = (m.time / d) * 100;
+      const el = document.createElement('div');
+      el.className = 'session-marker';
+      el.style.left = `calc(${pct}% - 1.5px)`;
+      el.style.background = m.colour;
+      el.innerHTML = `<div class="session-marker-tooltip">${fmt(m.time)}</div>`;
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        seekTo(m.time);
+      });
+      el.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        const mArr = sessionMarkers.get(currentMediaFile.name);
+        if (mArr) {
+          const idx = mArr.findIndex(x => x.id === m.id);
+          if (idx >= 0) { mArr.splice(idx, 1); renderSessionMarkers(); renderCueList(); }
+        }
+      });
+      timelineTrackArea.appendChild(el);
+    });
+
+    if (markerCountLabel) {
+      markerCountLabel.textContent = markers.length > 0 ? markers.length + 'm' : '';
+    }
+  }
+
+  // Build marker colour palette
+  (function initMarkerPalette() {
+    const palette = document.getElementById('markerPalette');
+    const btn = document.getElementById('markerColourBtn');
+    MARKER_COLOURS.forEach(mc => {
+      const swatch = document.createElement('div');
+      swatch.className = 'marker-palette-swatch' + (mc.colour === currentMarkerColour ? ' selected' : '');
+      swatch.style.background = mc.colour;
+      swatch.title = mc.label;
+      swatch.addEventListener('click', (e) => {
+        e.stopPropagation();
+        currentMarkerColour = mc.colour;
+        btn.style.background = mc.colour;
+        palette.querySelectorAll('.marker-palette-swatch').forEach(s => s.classList.remove('selected'));
+        swatch.classList.add('selected');
+        palette.classList.remove('visible');
+      });
+      palette.appendChild(swatch);
+    });
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      palette.classList.toggle('visible');
+    });
+    document.addEventListener('click', () => palette.classList.remove('visible'));
+  })();
+
+  // ---- FAVOURITES ----
+  const rightSidebar = document.getElementById('rightSidebar');
+  const favList = document.getElementById('favList');
+  const favBadge = document.getElementById('favBadge');
+
+  document.getElementById('btnFavourites').addEventListener('click', () => {
+    rightSidebar.classList.toggle('open');
+  });
+
+  function toggleFavourite(fileName) {
+    if (favourites.has(fileName)) {
+      favourites.delete(fileName);
+    } else {
+      favourites.add(fileName);
+    }
+    renderFavourites();
+    // Update star icons in the file list
+    document.querySelectorAll('.file-star').forEach(star => {
+      star.classList.toggle('starred', favourites.has(star.dataset.fileName));
+      star.innerHTML = favourites.has(star.dataset.fileName) ? '&#9733;' : '&#9734;';
+    });
+  }
+
+  function renderFavourites() {
+    favList.innerHTML = '';
+    if (favourites.size === 0) {
+      favList.innerHTML = '<div class="fav-empty-msg">No favourites yet.<br>Click the &#9733; on any file in the file list to star it.</div>';
+      if (favBadge) favBadge.textContent = '';
+      return;
+    }
+    if (favBadge) favBadge.textContent = favourites.size;
+
+    for (const fileName of favourites) {
+      const el = document.createElement('div');
+      el.className = 'fav-item';
+      if (currentMediaFile && currentMediaFile.name === fileName) {
+        el.classList.add('active');
+      }
+      el.innerHTML = `
+        <span style="font-size:12px;color:#e0c050;flex-shrink:0;">&#9733;</span>
+        <span class="fav-name" title="${fileName}">${fileName}</span>
+        <span class="fav-remove" title="Remove from favourites">&#10005;</span>
+      `;
+      // Click to load
+      el.addEventListener('click', async (e) => {
+        if (e.target.closest('.fav-remove')) return;
+        if (!watchDirHandle) return;
+        try {
+          const fh = await watchDirHandle.getFileHandle(fileName);
+          const file = await fh.getFile();
+          await loadMediaFile(file);
+          lastWatchedFile = { name: file.name, size: file.size, lastModified: file.lastModified };
+          // Update active states
+          document.querySelectorAll('.file-item').forEach(item => {
+            item.classList.toggle('active', item.querySelector('.file-name')?.textContent === fileName);
+          });
+          renderFavourites();
+        } catch (err) {
+          console.warn('[CuePlayer] Could not load favourite:', err);
+        }
+      });
+      // Remove button
+      el.querySelector('.fav-remove').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleFavourite(fileName);
+      });
+      favList.appendChild(el);
+    }
+  }
+
+  // ---- PLAYBACK ----
+  player.addEventListener('loadedmetadata', () => {
+    duration = player.duration;
+    // Re-calc chapter end times
+    for (let i = 0; i < chapters.length; i++) {
+      if (i < chapters.length - 1) {
+        chapters[i].end = chapters[i + 1].start;
+      } else {
+        chapters[i].end = duration;
+      }
+    }
+    renderTimeline();
+    updateTimeDisplay();
+  });
+
+  player.addEventListener('timeupdate', () => {
+    if (isSeeking) return;
+    updateProgress();
+    updateCurrentChapter();
+    updateTimeDisplay();
+  });
+
+  player.addEventListener('play', () => { isPlaying = true; btnPlay.innerHTML = '&#9646;&#9646;'; });
+  player.addEventListener('pause', () => { isPlaying = false; btnPlay.innerHTML = '&#9654;'; });
+  player.addEventListener('ended', () => { isPlaying = false; btnPlay.innerHTML = '&#9654;'; });
+
+  function updateProgress() {
+    if (!duration) return;
+    const pct = (player.currentTime / duration) * 100;
+    timelineProgress.style.width = pct + '%';
+    timelinePlayhead.style.left = `calc(${pct}% - 1.5px)`;
+    // Auto-scroll timeline when zoomed in and playing
+    if (isPlaying && timelineZoom > 1) scrollPlayheadIntoView();
+  }
+
+  function updateTimeDisplay() {
+    timeDisplay.textContent = `${fmt(player.currentTime)} / ${fmt(duration)}`;
+  }
+
+  function updateCurrentChapter() {
+    const t = player.currentTime;
+    let newIndex = -1;
+    for (let i = chapters.length - 1; i >= 0; i--) {
+      if (t >= chapters[i].start) {
+        newIndex = i;
+        break;
+      }
+    }
+    if (newIndex !== currentChapterIndex) {
+      currentChapterIndex = newIndex;
+      // Update cue list (match by data-index since placeholders are skipped)
+      document.querySelectorAll('.cue-item').forEach(el => {
+        el.classList.toggle('active', parseInt(el.dataset.index) === newIndex);
+      });
+      // Scroll active cue into view
+      const activeEl = cueList.querySelector('.cue-item.active');
+      if (activeEl) activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      // Update chapter labels
+      document.querySelectorAll('.chapter-label').forEach((el, i) => {
+        el.classList.toggle('active', i === newIndex);
+      });
+      // Update overlay
+      if (newIndex >= 0) {
+        const ch = chapters[newIndex];
+        const { cueNum, cueName } = parseCueTitle(ch.title);
+        currentCueName.textContent = cueNum ? `${cueNum} — ${cueName}` : ch.title;
+        currentCueDisplay.classList.add('visible');
+
+        // Fire OSC cue to ETC / disguise if enabled
+        if (ch.cueNum) {
+          fireCueOsc(ch.cueNum);
+        }
+      } else {
+        currentCueDisplay.classList.remove('visible');
+      }
+    }
+  }
+
+  function seekTo(time) {
+    player.currentTime = Math.max(0, Math.min(time, duration || Infinity));
+    updateProgress();
+    updateCurrentChapter();
+    updateTimeDisplay();
+  }
+
+  function togglePlay() {
+    if (!player.src) return;
+    // Use actual player state as source of truth (not tracked isPlaying)
+    if (player.paused) {
+      player.play().catch(() => {}); // ignore AbortError from rapid switching
+    } else {
+      player.pause();
+    }
+  }
+
+  // Transport buttons
+  btnPlay.addEventListener('click', togglePlay);
+  document.getElementById('btnSkipBack').addEventListener('click', () => {
+    const step = timelineZoom > 1 ? (1 / 30) : 1;
+    seekTo(player.currentTime - step);
+  });
+  document.getElementById('btnSkipFwd').addEventListener('click', () => {
+    const step = timelineZoom > 1 ? (1 / 30) : 1;
+    seekTo(player.currentTime + step);
+  });
+  document.getElementById('btnPrevCue').addEventListener('click', () => {
+    if (chapters.length === 0) return;
+    // If we're more than 2s into current cue, go to start of current; else go to previous
+    const idx = currentChapterIndex;
+    if (idx > 0 && (player.currentTime - chapters[idx].start) < 2) {
+      seekTo(chapters[idx - 1].start);
+    } else if (idx >= 0) {
+      seekTo(chapters[idx].start);
+    }
+  });
+  document.getElementById('btnNextCue').addEventListener('click', () => {
+    if (chapters.length === 0) return;
+    const idx = currentChapterIndex;
+    if (idx < chapters.length - 1) {
+      seekTo(chapters[idx + 1].start);
+    }
+  });
+
+  // Volume
+  volumeSlider.addEventListener('input', () => { player.volume = parseFloat(volumeSlider.value); });
+
+  // Speed
+  document.querySelectorAll('.speed-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      player.playbackRate = parseFloat(btn.dataset.speed);
+    });
+  });
+
+  // Timeline scrubbing (accounts for zoom & scroll)
+  function getTimeFromX(e) {
+    const innerRect = timelineInner.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - innerRect.left) / innerRect.width));
+    return pct * (duration || 0);
+  }
+
+  timelineTrackArea.addEventListener('mousedown', (e) => {
+    if (!duration) return;
+    isSeeking = true;
+    seekTo(getTimeFromX(e));
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (isSeeking) seekTo(getTimeFromX(e));
+
+    // Tooltip
+    if (duration && timelineTrackArea.matches(':hover')) {
+      const innerRect = timelineInner.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (e.clientX - innerRect.left) / innerRect.width));
+      const t = pct * duration;
+      // Find chapter at this time
+      let chName = '';
+      for (let i = chapters.length - 1; i >= 0; i--) {
+        if (t >= chapters[i].start) { chName = chapters[i].title; break; }
+      }
+      timelineTooltip.textContent = chName ? `${fmt(t)} — ${chName}` : fmt(t);
+      timelineTooltip.style.left = (pct * 100) + '%';
+      timelineTooltip.classList.add('visible');
+    } else if (!isSeeking) {
+      timelineTooltip.classList.remove('visible');
+    }
+  });
+  document.addEventListener('mouseup', () => { isSeeking = false; });
+  timelineTrackArea.addEventListener('mouseleave', () => {
+    if (!isSeeking) timelineTooltip.classList.remove('visible');
+  });
+
+  // ---- TIMELINE ZOOM ----
+  function setTimelineZoom(newZoom, pivotPct) {
+    const oldZoom = timelineZoom;
+    timelineZoom = Math.max(1, Math.min(50, newZoom));
+    applyTimelineZoom();
+    renderTimeRuler(duration || 600);
+
+    // Adjust scroll to keep the pivot point (where the cursor is) stable
+    if (pivotPct !== undefined && timelineZoom > 1) {
+      const scrollWidth = timelineScroll.scrollWidth;
+      const viewWidth = timelineScroll.clientWidth;
+      const targetScroll = (pivotPct * scrollWidth) - (pivotPct * viewWidth);
+      timelineScroll.scrollLeft = Math.max(0, targetScroll);
+    }
+  }
+
+  // Zoom buttons
+  document.getElementById('zoomIn').addEventListener('click', () => {
+    setTimelineZoom(timelineZoom * 1.5);
+    scrollPlayheadIntoView();
+  });
+  document.getElementById('zoomOut').addEventListener('click', () => {
+    setTimelineZoom(timelineZoom / 1.5);
+    scrollPlayheadIntoView();
+  });
+  document.getElementById('zoomFit').addEventListener('click', () => {
+    setTimelineZoom(1);
+    timelineScroll.scrollLeft = 0;
+  });
+
+  // Mouse wheel zoom on timeline (Ctrl+wheel or pinch)
+  timelineScroll.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const innerRect = timelineInner.getBoundingClientRect();
+      const pivotPct = Math.max(0, Math.min(1, (e.clientX - innerRect.left) / innerRect.width));
+      const factor = e.deltaY < 0 ? 1.25 : 0.8;
+      setTimelineZoom(timelineZoom * factor, pivotPct);
+    }
+  }, { passive: false });
+
+  // Keep playhead visible when zoomed
+  function scrollPlayheadIntoView() {
+    if (timelineZoom <= 1 || !duration) return;
+    const pct = player.currentTime / duration;
+    const scrollWidth = timelineScroll.scrollWidth;
+    const viewWidth = timelineScroll.clientWidth;
+    const playheadPos = pct * scrollWidth;
+    const scrollLeft = timelineScroll.scrollLeft;
+    const margin = viewWidth * 0.1;
+    if (playheadPos < scrollLeft + margin) {
+      timelineScroll.scrollLeft = Math.max(0, playheadPos - margin);
+    } else if (playheadPos > scrollLeft + viewWidth - margin) {
+      timelineScroll.scrollLeft = playheadPos - viewWidth + margin;
+    }
+  }
+
+  // ---- WATCH FOLDER ----
+  // Uses the File System Access API to watch a directory for new MP4 files.
+  // Polls every 3 seconds, auto-loads the newest file when it changes.
+
+  const watchIndicator = document.getElementById('watchIndicator');
+  const watchLabel = document.getElementById('watchLabel');
+
+  document.getElementById('btnWatchFolder').addEventListener('click', async () => {
+    if (watchInterval) {
+      // Stop watching
+      clearInterval(watchInterval);
+      watchInterval = null;
+      watchDirHandle = null;
+      lastWatchedFile = null;
+      watchIndicator.style.display = 'none';
+      watchIndicator.classList.remove('active');
+      document.getElementById('btnWatchFolder').textContent = 'Watch Folder';
+      stopFileBrowserRefresh();
+      console.log('[CuePlayer] Stopped watching folder');
+      return;
+    }
+
+    // Request directory access
+    try {
+      watchDirHandle = await window.showDirectoryPicker({ mode: 'read' });
+    } catch (err) {
+      // User cancelled
+      return;
+    }
+
+    document.getElementById('btnWatchFolder').textContent = 'Stop Watch';
+    watchIndicator.style.display = 'inline-flex';
+    watchIndicator.classList.add('active');
+    watchLabel.textContent = `Watching: ${watchDirHandle.name}`;
+
+    // Start file browser refresh in sidebar
+    startFileBrowserRefresh();
+
+    // Do an initial scan to find the current newest file (don't auto-load it)
+    lastWatchedFile = await findNewestMP4();
+    console.log(`[CuePlayer] Watching "${watchDirHandle.name}" — current newest: ${lastWatchedFile?.name || 'none'}`);
+
+    // Poll every 3 seconds
+    watchInterval = setInterval(async () => {
+      try {
+        const newest = await findNewestMP4();
+        if (newest && (!lastWatchedFile || newest.name !== lastWatchedFile.name || newest.lastModified > lastWatchedFile.lastModified)) {
+          // New or updated file detected — wait a moment for it to finish writing
+          console.log(`[CuePlayer] New file detected: ${newest.name} — waiting for write to finish...`);
+          watchLabel.textContent = `New: ${newest.name}...`;
+
+          // Wait 2 seconds then check if size is stable (file finished rendering)
+          await new Promise(r => setTimeout(r, 2000));
+          const check = await findNewestMP4();
+          if (check && check.name === newest.name && check.size === newest.size) {
+            lastWatchedFile = check;
+
+            if (watchAutoLoadEnabled) {
+              // Auto-load is ON — load immediately
+              watchLabel.textContent = `Loaded: ${check.name}`;
+              console.log(`[CuePlayer] Auto-loading: ${check.name} (${(check.size / 1048576).toFixed(1)}MB)`);
+              const fileHandle = await watchDirHandle.getFileHandle(check.name);
+              const file = await fileHandle.getFile();
+              await loadMediaFile(file);
+              watchPendingFile = null;
+              refreshFileList();
+            } else {
+              // Auto-load is PAUSED — hold the file
+              watchPendingFile = check;
+              watchLabel.textContent = `Held: ${check.name}`;
+              watchIndicator.classList.add('paused');
+              watchIndicator.classList.remove('active');
+              console.log(`[CuePlayer] Auto-load paused — holding: ${check.name}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[CuePlayer] Watch folder error:', err);
+      }
+    }, 3000);
+  });
+
+  // Watch auto-load toggle
+  document.getElementById('watchAutoLoad').addEventListener('click', async () => {
+    const toggle = document.getElementById('watchAutoLoad');
+    watchAutoLoadEnabled = !watchAutoLoadEnabled;
+    toggle.classList.toggle('on', watchAutoLoadEnabled);
+
+    if (watchAutoLoadEnabled && watchPendingFile) {
+      // Resume: load the held file
+      watchIndicator.classList.remove('paused');
+      watchIndicator.classList.add('active');
+      watchLabel.textContent = `Loading: ${watchPendingFile.name}...`;
+      try {
+        const fileHandle = await watchDirHandle.getFileHandle(watchPendingFile.name);
+        const file = await fileHandle.getFile();
+        await loadMediaFile(file);
+        watchLabel.textContent = `Loaded: ${watchPendingFile.name}`;
+        watchPendingFile = null;
+        refreshFileList();
+      } catch (err) {
+        console.warn('[CuePlayer] Error loading held file:', err);
+      }
+    } else if (watchAutoLoadEnabled) {
+      watchIndicator.classList.remove('paused');
+      watchIndicator.classList.add('active');
+      watchLabel.textContent = `Watching: ${watchDirHandle?.name || ''}`;
+    } else {
+      // Pausing — just update label
+      watchLabel.textContent = watchPendingFile
+        ? `Held: ${watchPendingFile.name}`
+        : `Paused: ${watchDirHandle?.name || ''}`;
+    }
+  });
+
+  async function findNewestMP4() {
+    if (!watchDirHandle) return null;
+    let newest = null;
+    for await (const [name, handle] of watchDirHandle) {
+      if (handle.kind !== 'file') continue;
+      if (!/\.(mp4|m4v|mov|mkv|webm)$/i.test(name)) continue;
+      try {
+        const file = await handle.getFile();
+        if (!newest || file.lastModified > newest.lastModified) {
+          newest = { name, size: file.size, lastModified: file.lastModified };
+        }
+      } catch (e) {
+        // File might be locked/writing
+      }
+    }
+    return newest;
+  }
+
+  // ---- KEYBOARD SHORTCUTS ----
+  document.addEventListener('keydown', (e) => {
+    // Don't handle if in an input
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    switch (e.key) {
+      case ' ':
+        e.preventDefault();
+        togglePlay();
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        document.getElementById('btnPrevCue').click();
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        document.getElementById('btnNextCue').click();
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        if (e.shiftKey) {
+          document.getElementById('btnPrevCue').click();
+        } else {
+          // Adaptive step: 1 frame (~1/30s) when zoomed in, 1s at normal zoom
+          const stepL = timelineZoom > 1 ? (1 / 30) : 1;
+          seekTo(player.currentTime - stepL);
+        }
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        if (e.shiftKey) {
+          document.getElementById('btnNextCue').click();
+        } else {
+          const stepR = timelineZoom > 1 ? (1 / 30) : 1;
+          seekTo(player.currentTime + stepR);
+        }
+        break;
+      case 'm':
+        if (!e.shiftKey) addSessionMarker();
+        break;
+      case 'M':
+        if (e.shiftKey) removeNearestMarker();
+        break;
+      case 'Home':
+        e.preventDefault();
+        seekTo(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        seekTo(duration);
+        break;
+      case 'c':
+      case 'C':
+        if (!e.ctrlKey) toggleCamera();
+        break;
+      case '=':
+      case '+':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          setTimelineZoom(timelineZoom * 1.5);
+          scrollPlayheadIntoView();
+        }
+        break;
+      case '-':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          setTimelineZoom(timelineZoom / 1.5);
+          scrollPlayheadIntoView();
+        }
+        break;
+      case '0':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          setTimelineZoom(1);
+        }
+        break;
+      case 'f':
+      case 'F':
+        if (document.fullscreenElement) document.exitFullscreen();
+        else mediaContainer.requestFullscreen?.();
+        break;
+      case '?':
+      case 'Escape':
+        shortcutsOverlay.classList.toggle('visible');
+        break;
+    }
+  });
+
+  document.getElementById('btnShortcuts').addEventListener('click', () => {
+    shortcutsOverlay.classList.toggle('visible');
+  });
+  shortcutsOverlay.addEventListener('click', (e) => {
+    if (e.target === shortcutsOverlay) shortcutsOverlay.classList.remove('visible');
+  });
+
+  // ---- COMPARE PASSTHROUGH ----
+  // Opens compare in a new window and sends the current video file via postMessage
+  document.getElementById('btnCompare').addEventListener('click', () => {
+    const compareWin = window.open('cue-compare.html', 'cue-compare');
+    if (currentMediaFile && compareWin) {
+      // Wait for compare page to be ready, then send the file
+      const sendFile = () => {
+        try {
+          compareWin.postMessage({ type: 'load-video-a', file: currentMediaFile }, '*');
+        } catch (e) {
+          console.warn('[CuePlayer] Could not send file to compare:', e);
+        }
+      };
+      // Try after a short delay to let the page load, then retry
+      setTimeout(sendFile, 1000);
+      setTimeout(sendFile, 2500);
+    }
+  });
+
+  // ---- OSC / SHOW CONTROL INTEGRATION ----
+  // WebSocket connection to local osc-bridge.js for ETC Eos and disguise output
+
+  const oscConfig = {
+    etc: { enabled: false, ip: '', port: 3032, cueList: 1 },
+    disguise: { enabled: false, ip: '', port: 8000 },
+    txEnabled: false,
+    rx: { enabled: false, port: 9101 }
+  };
+  let oscSocket = null;
+  let oscReconnectTimer = null;
+
+  // Load saved settings
+  try {
+    const saved = JSON.parse(localStorage.getItem('cuePlayerOSC'));
+    if (saved) Object.assign(oscConfig, saved);
+  } catch (e) {}
+
+  function saveOscConfig() {
+    try { localStorage.setItem('cuePlayerOSC', JSON.stringify(oscConfig)); } catch (e) {}
+  }
+
+  // Apply saved settings to UI
+  function applySettingsToUI() {
+    const etcToggle = document.getElementById('etcEnable');
+    const disguiseToggle = document.getElementById('disguiseEnable');
+    const rxToggle = document.getElementById('rxEnable');
+    etcToggle.classList.toggle('on', oscConfig.etc.enabled);
+    disguiseToggle.classList.toggle('on', oscConfig.disguise.enabled);
+    rxToggle.classList.toggle('on', oscConfig.rx.enabled);
+    document.getElementById('etcIp').value = oscConfig.etc.ip;
+    document.getElementById('etcPort').value = oscConfig.etc.port;
+    document.getElementById('etcCueList').value = oscConfig.etc.cueList;
+    document.getElementById('disguiseIp').value = oscConfig.disguise.ip;
+    document.getElementById('disguisePort').value = oscConfig.disguise.port;
+    document.getElementById('rxPort').value = oscConfig.rx.port;
+    updateTxIndicator();
+    updateRxIndicator();
+  }
+
+  function updateTxIndicator() {
+    const tx = document.getElementById('txIndicator');
+    const anyEnabled = oscConfig.etc.enabled || oscConfig.disguise.enabled;
+    oscConfig.txEnabled = anyEnabled && oscConfig.txEnabled !== false;
+    tx.classList.toggle('active', oscConfig.txEnabled && anyEnabled);
+  }
+
+  function updateRxIndicator() {
+    const rx = document.getElementById('rxIndicator');
+    rx.classList.toggle('active', oscConfig.rx.enabled);
+  }
+
+  // TX indicator click — toggle output on/off
+  document.getElementById('txIndicator').addEventListener('click', () => {
+    oscConfig.txEnabled = !oscConfig.txEnabled;
+    updateTxIndicator();
+    saveOscConfig();
+  });
+
+  // RX indicator click — toggle input on/off
+  document.getElementById('rxIndicator').addEventListener('click', () => {
+    oscConfig.rx.enabled = !oscConfig.rx.enabled;
+    updateRxIndicator();
+    saveOscConfig();
+    if (oscConfig.rx.enabled) connectOscBridge();
+  });
+
+  // Settings panel
+  const settingsOverlay = document.getElementById('settingsOverlay');
+
+  document.getElementById('btnSettings').addEventListener('click', () => {
+    applySettingsToUI();
+    settingsOverlay.classList.toggle('visible');
+  });
+  settingsOverlay.addEventListener('click', (e) => {
+    if (e.target === settingsOverlay) {
+      settingsOverlay.classList.remove('visible');
+      readSettingsFromUI();
+    }
+  });
+
+  // Toggle switches
+  document.getElementById('etcEnable').addEventListener('click', function() {
+    this.classList.toggle('on');
+    readSettingsFromUI();
+  });
+  document.getElementById('disguiseEnable').addEventListener('click', function() {
+    this.classList.toggle('on');
+    readSettingsFromUI();
+  });
+  document.getElementById('rxEnable').addEventListener('click', function() {
+    this.classList.toggle('on');
+    readSettingsFromUI();
+  });
+
+  // Read settings from UI inputs
+  function readSettingsFromUI() {
+    oscConfig.etc.enabled = document.getElementById('etcEnable').classList.contains('on');
+    oscConfig.etc.ip = document.getElementById('etcIp').value.trim();
+    oscConfig.etc.port = parseInt(document.getElementById('etcPort').value) || 3032;
+    oscConfig.etc.cueList = parseInt(document.getElementById('etcCueList').value) || 1;
+    oscConfig.disguise.enabled = document.getElementById('disguiseEnable').classList.contains('on');
+    oscConfig.disguise.ip = document.getElementById('disguiseIp').value.trim();
+    oscConfig.disguise.port = parseInt(document.getElementById('disguisePort').value) || 8000;
+    const newRxPort = parseInt(document.getElementById('rxPort').value) || 9101;
+    const rxPortChanged = newRxPort !== oscConfig.rx.port;
+    oscConfig.rx.enabled = document.getElementById('rxEnable').classList.contains('on');
+    oscConfig.rx.port = newRxPort;
+    saveOscConfig();
+    updateTxIndicator();
+    updateRxIndicator();
+
+    // Connect/disconnect bridge as needed
+    if (oscConfig.etc.enabled || oscConfig.disguise.enabled || oscConfig.rx.enabled) {
+      connectOscBridge();
+      // If RX port changed, notify the bridge
+      if (rxPortChanged && oscSocket && oscSocket.readyState === WebSocket.OPEN) {
+        oscSocket.send(JSON.stringify({ type: 'config-rx', port: oscConfig.rx.port }));
+      }
+    }
+  }
+
+  // Save on input change
+  ['etcIp', 'etcPort', 'etcCueList', 'disguiseIp', 'disguisePort', 'rxPort'].forEach(id => {
+    document.getElementById(id).addEventListener('change', readSettingsFromUI);
+  });
+
+  // WebSocket connection to osc-bridge
+  function connectOscBridge() {
+    if (oscSocket && oscSocket.readyState === WebSocket.OPEN) return;
+    if (oscSocket && oscSocket.readyState === WebSocket.CONNECTING) return;
+
+    try {
+      oscSocket = new WebSocket('ws://localhost:9100');
+      oscSocket.onopen = () => {
+        console.log('[CuePlayer] Connected to OSC bridge');
+        document.getElementById('bridgeStatus').className = 'conn-status connected';
+        document.getElementById('bridgeLabel').textContent = 'Connected';
+        updateTargetStatus();
+      };
+      oscSocket.onclose = () => {
+        console.log('[CuePlayer] OSC bridge disconnected');
+        document.getElementById('bridgeStatus').className = 'conn-status';
+        document.getElementById('bridgeLabel').textContent = 'Disconnected';
+        document.getElementById('etcStatus').className = 'conn-status';
+        document.getElementById('disguiseStatus').className = 'conn-status';
+        oscSocket = null;
+        // Auto-reconnect if still enabled
+        if (oscConfig.etc.enabled || oscConfig.disguise.enabled) {
+          clearTimeout(oscReconnectTimer);
+          oscReconnectTimer = setTimeout(connectOscBridge, 5000);
+        }
+      };
+      oscSocket.onerror = () => {
+        document.getElementById('bridgeStatus').className = 'conn-status error';
+        document.getElementById('bridgeLabel').textContent = 'Error — is osc-bridge.js running?';
+      };
+      oscSocket.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'status') {
+            updateTargetStatus(msg);
+            // Send RX port config on connect
+            if (oscConfig.rx.enabled && oscConfig.rx.port) {
+              oscSocket.send(JSON.stringify({ type: 'config-rx', port: oscConfig.rx.port }));
+            }
+          }
+          if (msg.type === 'osc-rx') handleOscRx(msg);
+          if (msg.type === 'rx-status') {
+            console.log(`[CuePlayer] RX listener on port ${msg.port}`);
+          }
+        } catch (err) {}
+      };
+    } catch (err) {
+      console.warn('[CuePlayer] Could not connect to OSC bridge:', err);
+    }
+  }
+
+  function updateTargetStatus(msg) {
+    if (oscConfig.etc.enabled) {
+      document.getElementById('etcStatus').className = 'conn-status connected';
+    }
+    if (oscConfig.disguise.enabled) {
+      document.getElementById('disguiseStatus').className = 'conn-status connected';
+    }
+  }
+
+  // Send OSC message via bridge
+  function sendOsc(target, address, args) {
+    if (!oscSocket || oscSocket.readyState !== WebSocket.OPEN) return;
+    const config = target === 'etc' ? oscConfig.etc : oscConfig.disguise;
+    if (!config.enabled || !config.ip) return;
+
+    const msg = {
+      target,
+      ip: config.ip,
+      port: config.port,
+      address,
+      args: args || []
+    };
+    oscSocket.send(JSON.stringify(msg));
+
+    // Flash TX indicator
+    const tx = document.getElementById('txIndicator');
+    tx.classList.remove('tx-flash');
+    void tx.offsetWidth; // force reflow
+    tx.classList.add('tx-flash');
+  }
+
+  // ---- OSC RX (Inbound Remote Control) ----
+  function handleOscRx(msg) {
+    if (!oscConfig.rx.enabled) return;
+
+    const addr = msg.address;
+    const args = msg.args || [];
+
+    // Flash RX indicator
+    const rx = document.getElementById('rxIndicator');
+    rx.classList.remove('rx-flash');
+    void rx.offsetWidth;
+    rx.classList.add('rx-flash');
+
+    console.log(`[CuePlayer] RX: ${addr}${args.length ? ' [' + args.join(', ') + ']' : ''}`);
+
+    // Match OSC addresses
+    if (addr === '/cue/player/play') {
+      if (player.paused && player.src) player.play().catch(() => {});
+    } else if (addr === '/cue/player/pause') {
+      if (!player.paused) player.pause();
+    } else if (addr === '/cue/player/toggle') {
+      togglePlay();
+    } else if (addr === '/cue/player/stop') {
+      if (!player.paused) player.pause();
+      seekTo(0);
+    } else if (addr === '/cue/player/next') {
+      document.getElementById('btnNextCue').click();
+    } else if (addr === '/cue/player/prev') {
+      document.getElementById('btnPrevCue').click();
+    } else if (addr === '/cue/player/goto' && args.length > 0) {
+      // Go to a specific cue by number — match against parsed cueNum
+      const target = String(args[0]);
+      const idx = chapters.findIndex(ch => ch.cueNum === target);
+      if (idx >= 0) {
+        seekTo(chapters[idx].start);
+        console.log(`[CuePlayer] RX goto cue ${target} → ${fmt(chapters[idx].start)}`);
+      } else {
+        console.warn(`[CuePlayer] RX goto: cue "${target}" not found`);
+      }
+    } else if (addr === '/cue/player/seek' && args.length > 0) {
+      const time = parseFloat(args[0]);
+      if (isFinite(time)) seekTo(time);
+    } else if (addr === '/cue/player/camera/toggle') {
+      toggleCamera();
+    } else if (addr === '/cue/player/camera/opacity' && args.length > 0) {
+      const val = parseFloat(args[0]);
+      if (isFinite(val)) {
+        const clamped = Math.max(0, Math.min(1, val));
+        camOpacitySlider.value = clamped;
+        cameraOverlay.style.opacity = clamped;
+        camOpacityValue.textContent = Math.round(clamped * 100) + '%';
+        console.log(`[CuePlayer] RX camera opacity → ${Math.round(clamped * 100)}%`);
+      }
+    } else {
+      console.log(`[CuePlayer] RX: unhandled address ${addr}`);
+    }
+  }
+
+  // Fire cue to enabled targets
+  function fireCueOsc(cueNum) {
+    if (!oscConfig.txEnabled || !cueNum) return;
+
+    // ETC Eos: /eos/cue/{list}/{cueNum}/fire
+    if (oscConfig.etc.enabled) {
+      const list = oscConfig.etc.cueList || 1;
+      sendOsc('etc', `/eos/cue/${list}/${cueNum}/fire`, []);
+      console.log(`[CuePlayer] TX ETC: /eos/cue/${list}/${cueNum}/fire`);
+    }
+
+    // disguise: /d3/showcontrol/cue [cue parts as integers]
+    if (oscConfig.disguise.enabled) {
+      // Parse cue number into integer parts: "134.5" → [134, 5], "100" → [100]
+      const parts = cueNum.split('.').map(p => parseInt(p)).filter(p => !isNaN(p));
+      sendOsc('disguise', '/d3/showcontrol/cue', parts);
+      console.log(`[CuePlayer] TX disguise: /d3/showcontrol/cue [${parts.join(', ')}]`);
+    }
+  }
+
+  // Auto-connect if settings were saved with integrations enabled
+  if (oscConfig.etc.enabled || oscConfig.disguise.enabled || oscConfig.rx.enabled) {
+    setTimeout(connectOscBridge, 500);
+  }
+  updateTxIndicator();
+  updateRxIndicator();
+
+  // ---- FILE BROWSER (left sidebar, top half) ----
+  // Always visible in the left sidebar. Shows media files in the watch folder
+  // and auto-updates when new files appear.
+
+  const fileBrowserSection = document.getElementById('fileBrowserSection');
+  const fileList = document.getElementById('fileList');
+  const fileCount = document.getElementById('fileCount');
+  const fileBrowserFolder = document.getElementById('fileBrowserFolder');
+  let knownFiles = []; // { name, size, lastModified }
+  let fileBrowserInterval = null;
+
+  function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(0) + ' KB';
+    if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+    return (bytes / 1073741824).toFixed(2) + ' GB';
+  }
+
+  function formatFileTime(ts) {
+    const d = new Date(ts);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    return `${dd}/${mo} ${hh}:${mm}`;
+  }
+
+  async function refreshFileList() {
+    if (!watchDirHandle) return;
+
+    const files = [];
+    for await (const [name, handle] of watchDirHandle) {
+      if (handle.kind !== 'file') continue;
+      if (!/\.(mp4|m4v|mov|mkv|webm|ogg|mp3|wav|flac|m4a)$/i.test(name)) continue;
+      try {
+        const file = await handle.getFile();
+        files.push({ name, size: file.size, lastModified: file.lastModified });
+      } catch (e) {
+        // File might be locked/writing — still show it
+        files.push({ name, size: 0, lastModified: 0 });
+      }
+    }
+
+    // Sort newest first
+    files.sort((a, b) => b.lastModified - a.lastModified);
+
+    // Detect new files (not in previous known set)
+    const previousNames = new Set(knownFiles.map(f => f.name));
+    const newFileNames = new Set();
+    files.forEach(f => {
+      if (!previousNames.has(f.name)) newFileNames.add(f.name);
+    });
+
+    knownFiles = files;
+    renderFileList(files, newFileNames);
+  }
+
+  function renderFileList(files, newFileNames) {
+    fileList.innerHTML = '';
+
+    if (files.length === 0) {
+      fileList.innerHTML = '<div class="file-empty-msg">No media files found in this folder.</div>';
+      fileCount.textContent = '';
+      fileBrowserSection.classList.add('collapsed');
+      return;
+    }
+    // Only auto-expand if user hasn't manually collapsed it
+    if (!userCollapsedSections.has('files')) {
+      fileBrowserSection.classList.remove('collapsed');
+    }
+
+    files.forEach(f => {
+      const el = document.createElement('div');
+      el.className = 'file-item';
+      // Highlight if this is the currently loaded file
+      if (currentMediaFile && currentMediaFile.name === f.name) {
+        el.classList.add('active');
+      }
+      // Highlight new files briefly
+      if (newFileNames && newFileNames.has(f.name)) {
+        el.classList.add('new-file');
+        setTimeout(() => el.classList.remove('new-file'), 5000);
+      }
+
+      const ext = f.name.split('.').pop().toLowerCase();
+      const icon = ['mp3', 'wav', 'flac', 'ogg', 'm4a'].includes(ext) ? '&#9835;' : '&#9654;';
+
+      const isStarred = favourites.has(f.name);
+      el.innerHTML = `
+        <span class="file-icon">${icon}</span>
+        <span class="file-name" title="${f.name}">${f.name}</span>
+        <span class="file-meta">${f.size ? formatFileSize(f.size) : '...'}</span>
+        <span class="file-star ${isStarred ? 'starred' : ''}" data-file-name="${f.name}" title="Toggle favourite">${isStarred ? '&#9733;' : '&#9734;'}</span>
+      `;
+      el.querySelector('.file-star').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleFavourite(f.name);
+      });
+      el.addEventListener('click', async () => {
+        try {
+          const fileHandle = await watchDirHandle.getFileHandle(f.name);
+          const file = await fileHandle.getFile();
+          await loadMediaFile(file);
+          lastWatchedFile = { name: f.name, size: f.size, lastModified: f.lastModified };
+          // Update active state
+          document.querySelectorAll('.file-item').forEach(item => item.classList.remove('active'));
+          el.classList.add('active');
+        } catch (err) {
+          console.warn('[CuePlayer] Error loading file from browser:', err);
+        }
+      });
+      fileList.appendChild(el);
+    });
+
+    fileCount.textContent = `${files.length} file${files.length !== 1 ? 's' : ''} \u2022 ${formatFileTime(Date.now())}`;
+    const fileBadge = document.getElementById('fileBadge');
+    if (fileBadge) fileBadge.textContent = files.length > 0 ? files.length : '';
+  }
+
+  // Start/stop file browser refresh alongside watch folder
+  function startFileBrowserRefresh() {
+    if (fileBrowserInterval) clearInterval(fileBrowserInterval);
+    fileBrowserFolder.textContent = watchDirHandle ? watchDirHandle.name : 'Files';
+    // Auto-expand on first watch folder selection, then respect user's toggle
+    if (!userCollapsedSections.has('files')) {
+      fileBrowserSection.classList.remove('collapsed');
+    }
+    refreshFileList();
+    // Refresh every 4 seconds (slightly offset from the 3s watch poll)
+    fileBrowserInterval = setInterval(() => {
+      if (watchDirHandle) refreshFileList();
+    }, 4000);
+  }
+
+  function stopFileBrowserRefresh() {
+    if (fileBrowserInterval) {
+      clearInterval(fileBrowserInterval);
+      fileBrowserInterval = null;
+    }
+    fileBrowserSection.classList.add('collapsed');
+    knownFiles = [];
+    fileBrowserFolder.textContent = 'Files';
+    const fileBadge = document.getElementById('fileBadge');
+    if (fileBadge) fileBadge.textContent = '';
+    fileList.innerHTML = '<div class="file-empty-msg">No watch folder active.</div>';
+    fileCount.textContent = '';
+  }
+
+  // ---- CUE SEARCH / CHAPTER INDEX ----
+  // Scans all MP4 files in the watch folder, parses their chapter metadata,
+  // and builds an index of { fileName → [cue entries] } for searching.
+
+  const cueSearchSection = document.getElementById('cueSearchSection');
+  const cueSearchInput = document.getElementById('cueSearchInput');
+  const searchResults = document.getElementById('searchResults');
+  const searchEmptyMsg = document.getElementById('searchEmptyMsg');
+  const indexDot = document.getElementById('indexDot');
+  const indexLabel = document.getElementById('indexLabel');
+  const indexCountEl = document.getElementById('indexCount');
+
+  // chapterIndex: Map of filename → [{ cueNum, cueName, title, start }]
+  let chapterIndex = new Map();
+  let indexScanTimer = null;
+  let isScanning = false;
+
+  // Build/refresh the chapter index for all MP4 files in the watch folder
+  async function buildChapterIndex() {
+    if (!watchDirHandle || isScanning) return;
+    isScanning = true;
+    indexDot.className = 'index-dot scanning';
+    indexLabel.textContent = 'Scanning...';
+
+    const newIndex = new Map();
+    let fileCount = 0;
+    let cueCount = 0;
+
+    for await (const [name, handle] of watchDirHandle) {
+      if (handle.kind !== 'file') continue;
+      if (!/\.(mp4|m4v|mov)$/i.test(name)) continue;
+
+      // Skip if we already have this file indexed and it hasn't changed
+      if (chapterIndex.has(name)) {
+        try {
+          const file = await handle.getFile();
+          const existing = chapterIndex.get(name);
+          if (existing._lastModified === file.lastModified && existing._size === file.size) {
+            newIndex.set(name, existing);
+            fileCount++;
+            cueCount += existing.length;
+            continue;
+          }
+        } catch (e) {}
+      }
+
+      try {
+        const file = await handle.getFile();
+        const rawChapters = await extractChaptersFromFile(file);
+
+        if (rawChapters && rawChapters.length > 0) {
+          const entries = rawChapters.map(ch => {
+            const parsed = parseCueTitle(ch.title);
+            return {
+              cueNum: parsed.cueNum,
+              cueName: parsed.cueName,
+              title: ch.title,
+              start: ch.start
+            };
+          });
+          entries._lastModified = file.lastModified;
+          entries._size = file.size;
+          newIndex.set(name, entries);
+          fileCount++;
+          cueCount += entries.length;
+        }
+      } catch (err) {
+        console.warn(`[CuePlayer] Could not index chapters for ${name}:`, err.message);
+      }
+    }
+
+    chapterIndex = newIndex;
+    isScanning = false;
+    indexDot.className = 'index-dot ready';
+    indexLabel.textContent = 'Index ready';
+    indexCountEl.textContent = `${fileCount} file${fileCount !== 1 ? 's' : ''}, ${cueCount} cues`;
+    console.log(`[CuePlayer] Chapter index built: ${fileCount} files, ${cueCount} total cues`);
+
+    // Re-run current search if there's a query
+    if (cueSearchInput.value.trim()) {
+      performCueSearch(cueSearchInput.value.trim());
+    }
+  }
+
+  // Search the index for a cue number
+  function performCueSearch(query) {
+    searchResults.innerHTML = '';
+
+    if (!query) {
+      searchResults.innerHTML = '<div class="search-empty-msg">Enter a cue number to find matching videos in the watch folder.</div>';
+      cueSearchSection.classList.add('collapsed');
+      return;
+    }
+
+    if (chapterIndex.size === 0) {
+      searchResults.innerHTML = '<div class="search-empty-msg">No index available. Start a Watch Folder to scan files.</div>';
+      cueSearchSection.classList.add('collapsed');
+      return;
+    }
+
+    const q = query.toLowerCase();
+    const results = [];
+
+    for (const [fileName, entries] of chapterIndex) {
+      for (const entry of entries) {
+        // Match: exact cue number, starts-with, or partial match
+        const num = (entry.cueNum || '').toLowerCase();
+        if (num && (num === q || num.startsWith(q) || q.startsWith(num) || num.includes(q))) {
+          results.push({ fileName, ...entry });
+        }
+      }
+    }
+
+    // Sort: exact matches first, then by cue number, then by filename
+    results.sort((a, b) => {
+      const aExact = a.cueNum.toLowerCase() === q ? 0 : 1;
+      const bExact = b.cueNum.toLowerCase() === q ? 0 : 1;
+      if (aExact !== bExact) return aExact - bExact;
+      const aNum = parseFloat(a.cueNum) || 0;
+      const bNum = parseFloat(b.cueNum) || 0;
+      if (aNum !== bNum) return aNum - bNum;
+      return a.fileName.localeCompare(b.fileName);
+    });
+
+    if (results.length === 0) {
+      searchResults.innerHTML = `<div class="search-empty-msg">No videos found with cue "${query}".</div>`;
+      cueSearchSection.classList.add('collapsed');
+      return;
+    }
+
+    if (!userCollapsedSections.has('search')) {
+      cueSearchSection.classList.remove('collapsed');
+    }
+
+    results.forEach(r => {
+      const el = document.createElement('div');
+      el.className = 'search-result-item';
+      el.title = `${r.fileName}\n${r.title} @ ${fmt(r.start)}`;
+      el.innerHTML = `
+        <span class="result-cue">${r.cueNum}</span>
+        <span class="result-file">${r.fileName}</span>
+        <span class="result-title">${r.cueName}</span>
+      `;
+      el.addEventListener('click', async () => {
+        try {
+          const fileHandle = await watchDirHandle.getFileHandle(r.fileName);
+          const file = await fileHandle.getFile();
+          await loadMediaFile(file);
+          lastWatchedFile = { name: r.fileName, size: file.size, lastModified: file.lastModified };
+          // Wait for metadata to load, then seek to the cue
+          const onMeta = () => {
+            seekTo(r.start);
+            player.removeEventListener('loadedmetadata', onMeta);
+          };
+          player.addEventListener('loadedmetadata', onMeta);
+          // Update file list active states
+          refreshFileList();
+        } catch (err) {
+          console.warn('[CuePlayer] Error loading search result:', err);
+        }
+      });
+      searchResults.appendChild(el);
+    });
+  }
+
+  // Wire up search input
+  let searchDebounce = null;
+  cueSearchInput.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+      performCueSearch(cueSearchInput.value.trim());
+    }, 200);
+  });
+
+  // Clear search on Escape
+  cueSearchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      cueSearchInput.value = '';
+      performCueSearch('');
+      cueSearchInput.blur();
+      e.stopPropagation();
+    }
+  });
+
+  // Hook into watch folder start/stop to trigger index builds
+  const _origStartFileBrowserRefresh = startFileBrowserRefresh;
+  startFileBrowserRefresh = function() {
+    _origStartFileBrowserRefresh();
+    // Expand search section
+    if (!userCollapsedSections.has('search')) {
+      cueSearchSection.classList.remove('collapsed');
+    }
+    // Build index after a short delay to let the file list populate first
+    setTimeout(buildChapterIndex, 500);
+    // Re-scan index periodically (every 15 seconds)
+    if (indexScanTimer) clearInterval(indexScanTimer);
+    indexScanTimer = setInterval(() => {
+      if (watchDirHandle && !isScanning) buildChapterIndex();
+    }, 15000);
+  };
+
+  const _origStopFileBrowserRefresh = stopFileBrowserRefresh;
+  stopFileBrowserRefresh = function() {
+    _origStopFileBrowserRefresh();
+    chapterIndex = new Map();
+    if (indexScanTimer) { clearInterval(indexScanTimer); indexScanTimer = null; }
+    indexDot.className = 'index-dot';
+    indexLabel.textContent = 'No index';
+    indexCountEl.textContent = '';
+    cueSearchInput.value = '';
+    searchResults.innerHTML = '<div class="search-empty-msg">Type a cue number to find matching videos.</div>';
+    cueSearchSection.classList.add('collapsed');
+  };
+
+  // ---- LIVE CAMERA OVERLAY ----
+  const cameraOverlay = document.getElementById('cameraOverlay');
+  const cameraFeed = document.getElementById('cameraFeed');
+  const cameraPicker = document.getElementById('cameraPicker');
+  const camOpacityBar = document.getElementById('camOpacityBar');
+  const camOpacitySlider = document.getElementById('camOpacitySlider');
+  const camOpacityValue = document.getElementById('camOpacityValue');
+  const btnCamera = document.getElementById('btnCamera');
+  let cameraActive = false;
+  let cameraStream = null;
+
+  async function toggleCamera() {
+    if (cameraActive) {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(t => t.stop());
+        cameraStream = null;
+      }
+      cameraFeed.srcObject = null;
+      cameraOverlay.classList.remove('active');
+      camOpacityBar.classList.remove('active');
+      btnCamera.classList.remove('active');
+      cameraPicker.classList.remove('visible');
+      cameraActive = false;
+      return;
+    }
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      if (videoDevices.length > 1) {
+        cameraPicker.innerHTML = '';
+        videoDevices.forEach(dev => {
+          const item = document.createElement('div');
+          item.className = 'camera-picker-item';
+          item.textContent = dev.label || `Camera ${videoDevices.indexOf(dev) + 1}`;
+          item.addEventListener('click', () => startCameraFeed(dev.deviceId));
+          cameraPicker.appendChild(item);
+        });
+        cameraPicker.classList.add('visible');
+      } else {
+        await startCameraFeed(videoDevices.length ? videoDevices[0].deviceId : undefined);
+      }
+    } catch (err) {
+      console.error('[CuePlayer] Camera access error:', err);
+      alert('Could not access camera. Make sure you have granted camera permissions.');
+    }
+  }
+
+  async function startCameraFeed(deviceId) {
+    cameraPicker.classList.remove('visible');
+    try {
+      const constraints = { video: deviceId ? { deviceId: { exact: deviceId } } : true, audio: false };
+      cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+      cameraFeed.srcObject = cameraStream;
+      cameraOverlay.classList.add('active');
+      cameraOverlay.style.opacity = parseFloat(camOpacitySlider.value);
+      camOpacityBar.classList.add('active');
+      btnCamera.classList.add('active');
+      cameraActive = true;
+      console.log('[CuePlayer] Camera started');
+    } catch (err) {
+      console.error('[CuePlayer] Camera start error:', err);
+      alert('Could not start camera: ' + err.message);
+    }
+  }
+
+  btnCamera.addEventListener('click', toggleCamera);
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.camera-btn-wrap')) {
+      cameraPicker.classList.remove('visible');
+    }
+  });
+
+  camOpacitySlider.addEventListener('input', () => {
+    const v = parseFloat(camOpacitySlider.value);
+    cameraOverlay.style.opacity = v;
+    camOpacityValue.textContent = Math.round(v * 100) + '%';
+  });
+
+  // Handle window resize
+  window.addEventListener('resize', () => { if (duration) renderTimeline(); });
+})();
+</script>
+</body>
+</html>
